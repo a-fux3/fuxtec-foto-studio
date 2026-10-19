@@ -37,8 +37,14 @@ Updates: Jeder Push auf `main` deployt automatisch.
 - Tab offen lassen, bis das ZIP heruntergeladen ist.
 
 ### KI-Schatten
-Das freigestellte Produkt geht auf Weiß an die Bild-KI (Standard Nano Banana 2, umschaltbar auf 2.1, Pro, GPT Image 2.5), die einen weichen Studioschatten malt. Übernommen wird **nur der Schatten**: Das Tool richtet das KI-Bild auf das Produkt aus und rechnet die Abdunklung außerhalb des Produkts als Schattenebene heraus. Das Produkt selbst bleibt pixelgenau der eigene Freisteller, auch im PNG mit transparentem Hintergrund.
+Das freigestellte Produkt geht auf Weiß an die Bild-KI (Standard GPT Image 2.5, bei Problemen automatisch Nano Banana 2; umschaltbar auf NB 2, 2.1, Pro), die einen weichen Studioschatten malt. Übernommen wird **nur der Schatten**: Das Tool richtet das KI-Bild auf das Produkt aus und rechnet die Abdunklung außerhalb des Produkts als Schattenebene heraus. Das Produkt selbst bleibt pixelgenau der eigene Freisteller, auch im PNG mit transparentem Hintergrund.
 Zeichnet die KI das Produkt zu stark neu oder färbt den Hintergrund, wird automatisch der berechnete Schatten genommen (Hinweis „Schatten berechnet“). In der Detailansicht: KI-Schatten/Berechnet umschalten, Modell wählen, „KI-Schatten neu erzeugen“, Stärke 0–200 %.
+
+### Standard ohne Einstellen
+Bei jedem Öffnen gilt derselbe Standard: Retusche nach KI-Entscheidung, Qualitätskontrolle an, KI-Schatten mit GPT Image 2.5, 3 Bilder parallel. „Erweiterte Einstellungen“ sind eingeklappt und gelten nur bis zum Neuladen. Oben zeigt eine Leiste den Gesamtfortschritt aller hochgeladenen Bilder, am Ende mit „Alle als ZIP herunterladen“.
+
+### Kanten-Rettung (PNG)
+Freisteller-KIs verschlucken gern feine Strukturen (Sägekette, Gitter, Speichen). Bei einfarbigem Studiogrund holt das Tool diese Details aus dem Originalfoto zurück und entfärbt halbtransparente Kanten, damit im PNG kein heller Saum bleibt. Die Freistellung läuft dafür mit bis zu 3200 px.
 
 ## 3. Einstellungen (`wrangler.jsonc` → `vars`)
 
@@ -48,7 +54,7 @@ Zeichnet die KI das Produkt zu stark neu oder färbt den Hintergrund, wird autom
 | `CLAUDE_MODEL` | `claude-opus-5-5` | Analyse + Qualitätskontrolle (fällt bei Fehler einmal auf Sonnet zurück) |
 | `KIE_EDIT_MODEL` | `nano-banana-2` | Standard-Retuschemodell |
 | `KIE_REMOVE_BG_MODEL` | `recraft/remove-background` | Freistellen |
-| `KIE_SHADOW_MODEL` | `nano-banana-2` | Standardmodell für den KI-Schatten |
+| `KIE_SHADOW_MODEL` | `gpt-image-2-5-flare-image-to-image` | Standardmodell für den KI-Schatten (Fallback: nano-banana-2) |
 
 ## 4. Lokal testen
 

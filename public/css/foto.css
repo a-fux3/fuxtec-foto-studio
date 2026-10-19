@@ -101,3 +101,27 @@ body.has-items .fdrop { min-height: 64px; }
   .fbar-opts .field { width: 100%; }
 }
 .seg[hidden] { display: none; }
+
+/* Erweiterte Einstellungen */
+.fbar-adv { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 10px; }
+.fbar-adv summary { display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--mute); font-size: 13px; font-weight: 500; list-style: none; }
+.fbar-adv summary::-webkit-details-marker { display: none; }
+.fbar-adv summary small { color: var(--faint); font-weight: 400; }
+.fbar-adv summary .chev { transition: transform .2s var(--ease); }
+.fbar-adv[open] summary .chev { transform: rotate(90deg); }
+.fbar-adv .fbar-opts { margin-top: 12px; border-top: 0; padding-top: 0; }
+
+/* Gesamtfortschritt */
+.gprog { position: sticky; top: 68px; z-index: 15; margin-top: 14px; padding: 14px 18px; box-shadow: 0 10px 30px rgba(0, 0, 0, .35); }
+.gprog[hidden] { display: none; }
+.gprog-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; min-height: 34px; flex-wrap: wrap; }
+.gprog-head b { font-weight: 500; font-size: 14px; }
+.gprog-pct { margin-left: auto; font-family: var(--mono); font-size: 13px; color: var(--mute); font-variant-numeric: tabular-nums; }
+.gprog-head .btn[hidden] { display: none; }
+.gbar { height: 8px; border-radius: 99px; background: var(--well); box-shadow: inset 0 0 0 1px var(--line); overflow: hidden; }
+.gbar i { display: block; height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, var(--fux), var(--fux-2)); transition: width .5s var(--ease); position: relative; overflow: hidden; }
+.gprog:not(.finished) .gbar i::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .35), transparent); animation: shine 1.4s linear infinite; }
+@keyframes shine { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+.gprog.finished .gbar i { background: var(--ok); }
+.gprog.finished.has-err .gbar i { background: linear-gradient(90deg, var(--ok), var(--warn)); }
+@media (max-width: 760px) { .gprog { top: 64px; } .gprog-pct { margin-left: 0; } }

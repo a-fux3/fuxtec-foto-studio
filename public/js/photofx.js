@@ -122,6 +122,90 @@ export function sharpen(c, amount, radius = 0.9) {
   x.putImageData(img, 0, 0); return c;
 }
 
+/* ---------------- Kanten-Rettung ----------------
+ * Freisteller-KIs verschlucken feine Strukturen (Sägekette, Gitter, Speichen, Fäden). Bei einfarbigem Studiogrund lässt sich
+ * das aus dem Originalfoto zurückholen: Pixel nahe der Freisteller-Kante, die sich klar vom (lokal geschätzten) Hintergrund
+ * unterscheiden und Struktur haben, werden wieder deckend. Weiche Schatten (wenig Struktur) bleiben draußen.
+ * cut = Freisteller (RGBA), src = Quellbild in gleicher Größe. Gibt { canvas, added } zurück. */
+export function refineAlpha(cut, src, { radius } = {}) {
+  const w = cut.width, h = cut.height, N = w * h;
+  const C = ctx2d(cut).getImageData(0, 0, w, h), cd = C.data;
+  const sc = canvas(w, h); sc.getContext('2d').drawImage(src, 0, 0, w, h);
+  const sd = ctx2d(sc).getImageData(0, 0, w, h).data;
+  const R = radius || Math.max(4, Math.round(Math.max(w, h) * 0.006));
+  // Abstand zum Produkt (grob, über wiederholtes Dilatieren mit 3×3)
+  const dist = new Uint16Array(N).fill(65535); let front = [];
+  for (let i = 0; i < N; i++) if (cd[i * 4 + 3] > 24) { dist[i] = 0; front.push(i); }
+  const FAR = R + 14;
+  for (let k = 1; k <= FAR && front.length; k++) {
+    const nx = [];
+    for (const i of front) { const x = i % w, y = (i / w) | 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const X = x + dx, Y = y + dy; if (X < 0 || Y < 0 || X >= w || Y >= h) continue; const j = Y * w + X; if (dist[j] > k) { dist[j] = k; nx.push(j); } } }
+    front = nx;
+  }
+  // Hintergrund lokal schätzen: 24er-Raster aus fernen Hintergrundpixeln, Lücken auffüllen
+  const G = 24, gw = Math.ceil(w / G), gh = Math.ceil(h / G), acc = new Float32Array(gw * gh * 4);
+  let n = 0, s1 = 0, s2 = 0;
+  for (let y = 0; y < h; y += 2) for (let x = 0; x < w; x += 2) {
+    const i = y * w + x; if (dist[i] <= FAR) continue;
+    const g = ((y / G) | 0) * gw + ((x / G) | 0), L = (sd[i * 4] + sd[i * 4 + 1] + sd[i * 4 + 2]) / 3;
+    acc[g * 4] += sd[i * 4]; acc[g * 4 + 1] += sd[i * 4 + 1]; acc[g * 4 + 2] += sd[i * 4 + 2]; acc[g * 4 + 3]++; n++; s1 += L; s2 += L * L;
+  }
+  if (n < 500) return { canvas: cut, added: 0, skipped: 'zu wenig Hintergrund' };
+  const sd2 = Math.sqrt(Math.max(0, s2 / n - (s1 / n) ** 2));
+  if (sd2 > 28) return { canvas: cut, added: 0, skipped: 'unruhiger Hintergrund' };
+  const bg = new Float32Array(gw * gh * 3), has = new Uint8Array(gw * gh);
+  for (let g = 0; g < gw * gh; g++) if (acc[g * 4 + 3] > 3) { for (let c = 0; c < 3; c++) bg[g * 3 + c] = acc[g * 4 + c] / acc[g * 4 + 3]; has[g] = 1; }
+  for (let pass = 0; pass < gw + gh; pass++) { let changed = 0;
+    for (let gy = 0; gy < gh; gy++) for (let gx = 0; gx < gw; gx++) { const g = gy * gw + gx; if (has[g]) continue; let c2 = 0; const sum = [0, 0, 0];
+      for (const [ox, oy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const X = gx + ox, Y = gy + oy; if (X < 0 || Y < 0 || X >= gw || Y >= gh) continue; const q = Y * gw + X; if (has[q] === 1) { for (let c = 0; c < 3; c++) sum[c] += bg[q * 3 + c]; c2++; } }
+      if (c2) { for (let c = 0; c < 3; c++) bg[g * 3 + c] = sum[c] / c2; has[g] = 2; changed++; } }
+    for (let g = 0; g < gw * gh; g++) if (has[g] === 2) has[g] = 1;
+    if (!changed) break; }
+  const bgAt = (x, y, c) => { // bilinear
+    const fx = Math.min(gw - 1.001, Math.max(0, x / G - 0.5)), fy = Math.min(gh - 1.001, Math.max(0, y / G - 0.5)), x0 = fx | 0, y0 = fy | 0, tx = fx - x0, ty = fy - y0;
+    const q = (X, Y) => bg[(Math.min(gh - 1, Y) * gw + Math.min(gw - 1, X)) * 3 + c];
+    return q(x0, y0) * (1 - tx) * (1 - ty) + q(x0 + 1, y0) * tx * (1 - ty) + q(x0, y0 + 1) * (1 - tx) * ty + q(x0 + 1, y0 + 1) * tx * ty;
+  };
+  // Luminanz für Struktur-Test
+  const Lum = new Float32Array(N); for (let i = 0; i < N; i++) Lum[i] = 0.2126 * sd[i * 4] + 0.7152 * sd[i * 4 + 1] + 0.0722 * sd[i * 4 + 2];
+  const ss = (e0, e1, v) => { const t = Math.min(1, Math.max(0, (v - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
+  // Kandidaten im Saum: deutlich anders als Hintergrund UND strukturiert (Schatten sind glatt)
+  const cand = new Float32Array(N);
+  for (let y = 2; y < h - 2; y++) for (let x = 2; x < w - 2; x++) {
+    const i = y * w + x; if (dist[i] === 0 && cd[i * 4 + 3] > 230) continue; if (dist[i] > R) continue;
+    const dr = sd[i * 4] - bgAt(x, y, 0), dg = sd[i * 4 + 1] - bgAt(x, y, 1), db = sd[i * 4 + 2] - bgAt(x, y, 2);
+    const d = Math.sqrt(dr * dr + dg * dg + db * db); if (d < 20) continue;
+    let mn = 255, mx = 0; for (let oy = -2; oy <= 2; oy++) for (let ox = -2; ox <= 2; ox++) { const k = i + oy * w + ox; if (cd[k * 4 + 3] > 128) continue; const v = Lum[k]; if (v < mn) mn = v; if (v > mx) mx = v; } // nur Nicht-Produkt-Nachbarn: Schatten direkt am Produkt bleiben glatt
+    if (mx < mn) continue;
+    cand[i] = ss(20, 70, d) * ss(14, 40, mx - mn);
+  }
+  // nur zusammenhängend vom Produkt aus wachsen (keine Staubkörner im Hintergrund)
+  const out = new Uint8ClampedArray(cd), vis = new Uint8Array(N); let q = [];
+  for (let i = 0; i < N; i++) if (cd[i * 4 + 3] > 64) { vis[i] = 1; q.push(i); }
+  let added = 0;
+  while (q.length) { const nq = [];
+    for (const i of q) { const x = i % w, y = (i / w) | 0;
+      for (const j of [i - 1, i + 1, i - w, i + w, i - w - 1, i - w + 1, i + w - 1, i + w + 1]) {
+        if (j < 0 || j >= N || vis[j]) continue; const X = j % w; if (Math.abs(X - x) > 1) continue;
+        vis[j] = 1; const a = cand[j]; if (a < 0.25) continue;
+        const na = Math.round(a * 255); if (na <= out[j * 4 + 3]) { nq.push(j); continue; }
+        // Farbe vom Hintergrund entmischen: F = B + (S − B) / a
+        const Y = (j / w) | 0, af = na / 255;
+        for (let c = 0; c < 3; c++) { const B = bgAt(X, Y, c); out[j * 4 + c] = B + (sd[j * 4 + c] - B) / Math.max(af, 0.35); }
+        out[j * 4 + 3] = na; added++; nq.push(j);
+      } }
+    q = nq; }
+  // Halbtransparente Kantenpixel entfärben (sonst heller/grauer Saum vom Studiogrund im PNG)
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = y * w + x, a = out[i * 4 + 3]; if (a < 12 || a > 243) continue;
+    const af = Math.max(a / 255, 0.3);
+    for (let c = 0; c < 3; c++) { const B = bgAt(x, y, c); out[i * 4 + c] = B + (sd[i * 4 + c] - B) / af; }
+  }
+  const o = canvas(w, h); o.getContext('2d').putImageData(new ImageData(out, w, h), 0, 0);
+  return { canvas: o, added };
+}
+
 /* ---------------- Einpassen ---------------- */
 /* Begrenzungsrahmen des Produkts (ignoriert Halbtransparenz-Staub) */
 export function alphaBox(c, thr = 24) {

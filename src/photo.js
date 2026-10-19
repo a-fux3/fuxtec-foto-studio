@@ -17,7 +17,7 @@ export async function handlePhoto(req, env, url, h) {
 
   if (p === '/config') return json({
     claude: claudeReady(env), kie: !!env.KIE_API_KEY, model, editModel: env.KIE_EDIT_MODEL || 'nano-banana-2', editModels: EDIT_MODELS,
-    shadowModel: env.KIE_SHADOW_MODEL || 'nano-banana-2', shadowModels: SHADOW_MODELS
+    shadowModel: env.KIE_SHADOW_MODEL || 'gpt-image-2-5-flare-image-to-image', shadowModels: SHADOW_MODELS
   });
 
   /* Upload: Body {base64Data, fileName} wird ungeparst an Kie weitergereicht (spart Worker-CPU) */
@@ -60,7 +60,7 @@ export async function handlePhoto(req, env, url, h) {
   /* KI-Schatten: Produkt auf Weiß → Bild-KI malt den Schatten (übernommen wird im Browser nur der Schatten) */
   if (p === '/shadow' && m === 'POST') {
     const b = await body(); if (!env.KIE_API_KEY) return json({ mock: true });
-    const model = SHADOW_MODELS.includes(b.model) ? b.model : (env.KIE_SHADOW_MODEL || 'nano-banana-2');
+    const model = SHADOW_MODELS.includes(b.model) ? b.model : (env.KIE_SHADOW_MODEL || 'gpt-image-2-5-flare-image-to-image');
     const prompt = shadowPrompt(b.mode, b.light);
     const input = model.startsWith('gpt-image')
       ? { prompt, input_urls: [b.imageUrl], aspect_ratio: '1:1', resolution: '1K' }

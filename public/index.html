@@ -19,6 +19,7 @@
     <symbol id="i-archive" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9M10 13h4"/></symbol>
     <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 20V9M7 14l5-5 5 5M4 4h16"/></symbol>
     <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
   <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.5-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.5 4.5L20 16M20 20v-4h-4"/></symbol>
@@ -36,7 +37,7 @@
     <div class="fbar-main">
       <div class="fbar-title">
         <h1>Produktfotos im Bulk</h1>
-        <p>Analyse, Retusche, Freistellen und Schatten pro Bild. Ausgabe 1200 × 1200, Produkt im 900er-Rahmen, als JPG (weiß) und PNG (transparent).</p>
+        <p>Fotos reinziehen – der Rest läuft automatisch: KI-Analyse, Retusche bei Bedarf, Freistellen, KI-Schatten. Ausgabe 1200 × 1200, Produkt im 900er-Rahmen, als JPG (weiß) und PNG (transparent).</p>
       </div>
       <div class="fbar-actions">
         <span id="progressTxt" class="prog-txt"></span>
@@ -44,6 +45,8 @@
         <button class="btn primary" id="zipBtn" disabled><svg class="i"><use href="#i-archive"/></svg>Alle als ZIP</button>
       </div>
     </div>
+    <details class="fbar-adv">
+    <summary><svg class="i chev"><use href="#i-chev"/></svg>Erweiterte Einstellungen <small>optional – der Standard passt für alle Bilder</small></summary>
     <div class="fbar-opts">
       <div class="field"><span class="flabel">KI-Retusche</span>
         <div class="seg" role="radiogroup" aria-label="KI-Retusche">
@@ -69,14 +72,22 @@
         </div></div>
       <div class="field" id="shadowModelField"><span class="flabel">Schatten-Modell</span>
         <div class="seg" role="radiogroup" aria-label="Schatten-Modell">
-          <label><input type="radio" name="shadowModel" value="nano-banana-2" checked><span>NB 2</span></label>
+          <label><input type="radio" name="shadowModel" value="nano-banana-2"><span>NB 2</span></label>
           <label><input type="radio" name="shadowModel" value="nano-banana-2-1"><span>NB 2.1</span></label>
           <label><input type="radio" name="shadowModel" value="nano-banana-pro"><span>NB Pro</span></label>
-          <label><input type="radio" name="shadowModel" value="gpt-image-2-5-flare-image-to-image"><span>GPT 2.5</span></label>
+          <label><input type="radio" name="shadowModel" value="gpt-image-2-5-flare-image-to-image" checked><span>GPT 2.5</span></label>
         </div></div>
       <label class="field rng"><span class="flabel">Schatten-Stärke <output id="strengthOut">100 %</output></span><input type="range" id="strength" min="0" max="200" step="5" value="100"></label>
       <label class="tgl"><input type="checkbox" id="qa" checked><span class="sw"></span><span><b>Qualitätskontrolle</b><small>Claude vergleicht Retusche mit Original, verwirft Abweichungen.</small></span></label>
     </div>
+    <p class="hint">Gilt nur bis zum Neuladen der Seite. Danach ist wieder der Standard aktiv.</p>
+    </details>
+  </section>
+
+  <section class="gprog card" id="gprog" hidden>
+    <div class="gprog-head"><b id="gprogTxt"></b><span id="gprogPct" class="gprog-pct"></span>
+      <button class="btn primary" id="gprogZip" hidden><svg class="i"><use href="#i-archive"/></svg>Alle als ZIP herunterladen</button></div>
+    <div class="gbar"><i id="gprogBar"></i></div>
   </section>
 
   <label class="fdrop" id="drop">

@@ -12,7 +12,7 @@
     // Retusche-Modell (in der App umschaltbar): nano-banana-2 | nano-banana-pro
     "KIE_EDIT_MODEL": "nano-banana-2",
     // KI-Schatten (in der App umschaltbar): nano-banana-2 | nano-banana-2-1 | nano-banana-pro | gpt-image-2-5-flare-image-to-image
-    "KIE_SHADOW_MODEL": "nano-banana-2",
+    "KIE_SHADOW_MODEL": "gpt-image-2-5-flare-image-to-image",
     "KIE_REMOVE_BG_MODEL": "recraft/remove-background"
   },
   "observability": { "enabled": true }

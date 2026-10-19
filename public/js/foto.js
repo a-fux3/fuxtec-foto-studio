@@ -5,7 +5,8 @@ import { removeLightBackground } from './imgtools.js';
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const WORK_MAX = 2400;          // Arbeitsauflösung (reicht für 900 px Produkt, bleibt unter Kie-Limits)
+const WORK_MAX = 3200;          // Arbeitsauflösung: hoch genug für feine Details beim Freistellen, unter den Kie-Limits (4096 px, 16 MP, 5 MB)
+const UPLOAD_MAX_BYTES = 4.6e6;  // Freisteller-Modell nimmt max. 5 MB
 const STEPS = { queued: 'Wartet', prep: 'Vorbereiten', upload: 'Hochladen', analyze: 'KI-Analyse', retouch: 'Retusche', qa: 'Qualitätskontrolle', cutout: 'Freistellen', shadow: 'KI-Schatten', render: 'Schatten & Export', done: 'Fertig', error: 'Fehler' };
 
 let CFG = { kie: false, claude: false };
@@ -17,22 +18,25 @@ const opt = () => ({
   strength: +$('#strength').value / 100,
   qa: $('#qa').checked,
   shadowSrc: document.querySelector('input[name=shadowSrc]:checked')?.value || 'ai',
-  shadowModel: document.querySelector('input[name=shadowModel]:checked')?.value || 'nano-banana-2'
+  shadowModel: document.querySelector('input[name=shadowModel]:checked')?.value || 'gpt-image-2-5-flare-image-to-image'
 });
 const SHADOW_MODEL_LABEL = { 'nano-banana-2': 'Nano Banana 2', 'nano-banana-2-1': 'Nano Banana 2.1', 'nano-banana-pro': 'NB Pro', 'gpt-image-2-5-flare-image-to-image': 'GPT Image 2.5' };
 
 /* ---------------- Start ---------------- */
-init();
-async function init() {
-  try { const p = await (await fetch('/assets/logo/fuxkopf_path.txt')).text(); $('#brandLogo').innerHTML = `<path fill-rule="evenodd" d="${p}"/>`; } catch { }
+let cfgLoaded = false;
+async function loadConfig() {
   try { CFG = await api('/api/photo/config'); } catch (e) { toast('Konfiguration nicht ladbar: ' + e.message, true); }
   $('#status').innerHTML = `<span class="pill ${CFG.claude ? 'on' : 'off'}">Claude${CFG.claude ? '' : ' fehlt'}</span><span class="pill ${CFG.kie ? 'on' : 'off'}">Kie${CFG.kie ? '' : ' fehlt'}</span>`;
   if (!CFG.kie || !CFG.claude) toast('Testmodus: ohne Kie/Claude wird nur lokal freigestellt (Weiß-Hintergrund), keine KI-Analyse/Retusche.', true);
-  if (CFG.editModel) { const r = document.querySelector(`input[name=editModel][value="${CFG.editModel}"]`); if (r) r.checked = true; }
-  try { const s = JSON.parse(localStorage.getItem('foto-opts') || '{}');
-    for (const [k, v] of Object.entries(s)) { const r = document.querySelector(`input[name=${k}][value="${v}"]`); if (r) r.checked = true; }
-    if (s.strength != null) $('#strength').value = s.strength; if (s.qa != null) $('#qa').checked = s.qa;
-  } catch { }
+  // Standard ist bei jedem Öffnen gleich (keine gespeicherten Abweichungen) – Erweiterte Einstellungen gelten nur für diese Sitzung
+  for (const [name, v] of [['editModel', CFG.editModel], ['shadowModel', CFG.shadowModel]]) { const r = v && document.querySelector(`input[name=${name}][value="${v}"]`); if (r) r.checked = true; }
+  try { localStorage.removeItem('foto-opts'); } catch { }
+  cfgLoaded = true; pump();
+}
+init();
+async function init() {
+  fetch('/assets/logo/fuxkopf_path.txt').then(r => r.text()).then(p => { $('#brandLogo').innerHTML = `<path fill-rule="evenodd" d="${p}"/>`; }).catch(() => { });
+  loadConfig(); // läuft parallel – Bilder können sofort reingezogen werden, die Verarbeitung startet, sobald die Konfiguration da ist
   $('#strengthOut').textContent = $('#strength').value + ' %';
   document.querySelector('.fbar-opts').addEventListener('change', saveOpts);
   $('#strength').addEventListener('input', () => { $('#strengthOut').textContent = $('#strength').value + ' %'; });
@@ -46,7 +50,7 @@ async function init() {
   ['dragleave', 'drop'].forEach(e => document.addEventListener(e, ev => { if (e === 'dragleave' && ev.relatedTarget) return; drop.classList.remove('over'); }));
   document.addEventListener('drop', ev => { if (!ev.dataTransfer?.files?.length) return; ev.preventDefault(); addFiles(ev.dataTransfer.files); });
 
-  $('#zipBtn').onclick = zipAll;
+  $('#zipBtn').onclick = zipAll; $('#gprogZip').onclick = zipAll;
   $('#clearBtn').onclick = () => {
     if (running && !confirm('Es laufen noch Bilder. Trotzdem alles leeren?')) return;
     for (const it of items) it.cancelled = true; items.length = 0; $('#grid').innerHTML = ''; updateProgress();
@@ -55,7 +59,6 @@ async function init() {
   initDetail();
 }
 function saveOpts() {
-  const o = opt(); try { localStorage.setItem('foto-opts', JSON.stringify({ retouch: o.retouch, editModel: o.editModel, conc: o.conc, strength: $('#strength').value, qa: o.qa, shadowSrc: o.shadowSrc, shadowModel: o.shadowModel })); } catch { }
   pump();
 }
 
@@ -73,6 +76,7 @@ function addFiles(list) {
   updateProgress(); pump();
 }
 function pump() {
+  if (!cfgLoaded) { updateProgress(); return; }
   const max = opt().conc;
   while (running < max) {
     const it = items.find(i => i.status === 'queued'); if (!it) break;
@@ -85,7 +89,7 @@ function fail(it, e) {
   if (it.cancelled) return;
   console.error(it.name, e); it.status = 'error'; it.error = e.message || String(e); paint(it);
 }
-const step = (it, s, sub) => { if (it.cancelled) throw new Error('abgebrochen'); it.status = s; it.sub = sub || ''; paint(it); };
+const step = (it, s, sub) => { if (it.cancelled) throw new Error('abgebrochen'); it.status = s; it.sub = sub || ''; paint(it); updateProgress(); };
 
 /* ---------------- Speicher ----------------
  * Große Canvas-Daten werden nicht pro Bild gehalten (100 Bilder × 2400 px würden den Tab sprengen):
@@ -100,7 +104,16 @@ async function cached(key, make) {
 const blobCanvas = async (blob, max = 0) => { const bm = await fx.loadBitmap(blob); const c = max ? fx.fitMax(bm, max) : null; if (c && c !== bm) return c; const o = fx.canvas(bm.width, bm.height); o.getContext('2d').drawImage(bm, 0, 0); return o; };
 const getWork = it => cached(it.id + ':work', () => blobCanvas(it.src || it.file, WORK_MAX));
 const getRet = it => it.retouch?.blob ? cached(it.id + ':ret:' + it.retouch.url, () => blobCanvas(it.retouch.blob)) : null;
-const getCut = it => cached(it.id + ':cut:' + it.cutKey, () => blobCanvas(it.cutBlobs[it.cutKey], 1800));
+const getCut = it => cached(it.id + ':cut:' + it.cutKey, async () => {
+  const cut = await blobCanvas(it.cutBlobs[it.cutKey], 1800);
+  if (it.alphaIn) return cut;
+  // feine Details (Sägekette, Gitter, Speichen) aus dem Originalfoto zurückholen, Kanten entfärben
+  const src = it.cutKey === 'ret' ? await getRet(it) : await getWork(it);
+  if (!src) return cut;
+  const r = fx.refineAlpha(cut, src);
+  if (!it.refineLogged) { it.refineLogged = true; it.log.push(r.skipped ? `Kanten-Rettung übersprungen (${r.skipped})` : `Kanten-Rettung: ${r.added} Detailpixel zurückgeholt`); }
+  return r.canvas;
+});
 function dropCache(it) { for (const k of [...cache.keys()]) if (k.startsWith(it.id + ':')) cache.delete(k); }
 
 /* Eingangsdatei einmal lesen: Originalmaße merken; TIFF & Co. (vom Browser nicht lesbar) in eine
@@ -167,7 +180,9 @@ async function process(it) {
 async function ensureUpload(it) {
   if (it.origUrl && Date.now() - it.origAt < 20 * 3600e3) return;
   step(it, 'upload');
-  it.origUrl = (await api('/api/photo/upload', { base64Data: fx.jpegDataUrl(await getWork(it), WORK_MAX, 0.93), uploadPath: 'fuxtec-foto', fileName: `${it.id}-orig.jpg` })).url;
+  const work = await getWork(it); let q = 0.93, data = fx.jpegDataUrl(work, WORK_MAX, q);
+  while (data.length * 0.75 > UPLOAD_MAX_BYTES && q > 0.6) { q -= 0.07; data = fx.jpegDataUrl(work, WORK_MAX, q); }
+  it.origUrl = (await api('/api/photo/upload', { base64Data: data, uploadPath: 'fuxtec-foto', fileName: `${it.id}-orig.jpg` })).url;
   it.origAt = Date.now();
 }
 
@@ -216,23 +231,30 @@ async function ensureCutout(it) {
 const aiShadowFresh = it => it.aiShadow && it.aiShadow.key === it.cutKey;
 async function ensureAiShadow(it, { force = false, model } = {}) {
   const r = it.r;
-  if (!(CFG.kie && CFG.claude) || r.shadowMode === 'none') { r.shadowSource = 'calc'; return; }
+  if (!(CFG.kie && CFG.claude)) { r.shadowSource = 'calc'; return; }
   if (aiShadowFresh(it) && !force) return;
-  step(it, 'shadow');
+  if (r.shadowMode === 'none') r.shadowMode = 'floor'; // jedes Produkt bekommt einen Schatten
   const placed = fx.prepareProduct(await getCut(it), r);
   const up = await api('/api/photo/upload', { base64Data: fx.jpegDataUrl(fx.productOnWhite(placed), 1200, 0.94), uploadPath: 'fuxtec-foto', fileName: `${it.id}-weiss.jpg` });
-  const t = await api('/api/photo/shadow', { imageUrl: up.url, mode: r.shadowMode, light: r.light, model: model || opt().shadowModel });
-  const ai = await blobCanvas(await fetchBlob(await pollTask(it, t.taskId)));
-  const big = fx.canvas(placed.layer.width, placed.layer.height); big.getContext('2d').drawImage(ai, 0, 0, big.width, big.height);
-  await sleep(0);
-  const ex = fx.extractAiShadow(big, placed);
-  if (!ex.ok) {
-    it.log.push(`KI-Schatten (${SHADOW_MODEL_LABEL[t.model] || t.model}) verworfen: ${ex.reason} – berechneter Schatten`);
-    it.aiShadowFail = ex.reason; r.shadowSource = 'calc'; return;
+  // gewähltes Modell, bei Problemen automatisch Nano Banana 2, erst danach berechneter Schatten
+  const first = model || opt().shadowModel, chain = [first, ...(first !== 'nano-banana-2' ? ['nano-banana-2'] : [])];
+  let lastErr = '';
+  for (const m of chain) {
+    step(it, 'shadow', m !== first ? 'zweiter Versuch' : '');
+    try {
+      const t = await api('/api/photo/shadow', { imageUrl: up.url, mode: r.shadowMode, light: r.light, model: m });
+      const ai = await blobCanvas(await fetchBlob(await pollTask(it, t.taskId)));
+      const big = fx.canvas(placed.layer.width, placed.layer.height); big.getContext('2d').drawImage(ai, 0, 0, big.width, big.height);
+      await sleep(0);
+      const ex = fx.extractAiShadow(big, placed);
+      if (!ex.ok) { lastErr = `${SHADOW_MODEL_LABEL[m] || m}: ${ex.reason}`; it.log.push('KI-Schatten verworfen – ' + lastErr); continue; }
+      it.aiShadow = { key: it.cutKey, blob: await fx.toBlob(ex.canvas, 'image/png'), model: t.model, cost: ex.cost, at: Date.now() };
+      it.aiShadowFail = null; r.shadowSource = 'ai';
+      it.log.push(`KI-Schatten: ${SHADOW_MODEL_LABEL[t.model] || t.model} (Abweichung Produkt ${ex.cost.toFixed(1)})`);
+      return;
+    } catch (e) { if (it.cancelled) throw e; lastErr = `${SHADOW_MODEL_LABEL[m] || m}: ${e.message}`; it.log.push('KI-Schatten fehlgeschlagen – ' + lastErr); }
   }
-  it.aiShadow = { key: it.cutKey, blob: await fx.toBlob(ex.canvas, 'image/png'), model: t.model, cost: ex.cost, at: Date.now() };
-  it.aiShadowFail = null;
-  it.log.push(`KI-Schatten: ${SHADOW_MODEL_LABEL[t.model] || t.model} (Abweichung Produkt ${ex.cost.toFixed(1)})`);
+  it.aiShadowFail = lastErr || 'unbekannt'; r.shadowSource = 'calc';
 }
 
 async function rerender(it) {
@@ -310,11 +332,21 @@ function paint(it, el = document.getElementById('c-' + it.id)) {
   el.querySelector('.fc-tags').innerHTML = tags.join('');
   el.querySelector('.fc-retry').hidden = it.status !== 'error';
 }
+const STEP_PCT = { queued: 0, prep: 4, upload: 10, analyze: 18, retouch: 35, qa: 50, cutout: 58, shadow: 72, render: 95, done: 100, error: 100 };
 function updateProgress() {
-  const done = items.filter(i => i.status === 'done').length, err = items.filter(i => i.status === 'error').length;
-  $('#progressTxt').textContent = items.length ? `${done}/${items.length} fertig${err ? ` · ${err} Fehler` : ''}${running ? ` · ${running} in Arbeit` : ''}` : '';
+  const done = items.filter(i => i.status === 'done').length, err = items.filter(i => i.status === 'error').length, total = items.length;
+  const pct = total ? items.reduce((s, i) => s + (STEP_PCT[i.status] ?? 0), 0) / total : 0;
+  const finished = total && done + err === total && !running;
+  $('#progressTxt').textContent = total ? `${done}/${total} fertig${err ? ` · ${err} Fehler` : ''}` : '';
   $('#zipBtn').disabled = !done;
-  document.body.classList.toggle('has-items', items.length > 0);
+  document.body.classList.toggle('has-items', total > 0);
+  const g = $('#gprog'); g.hidden = !total; g.classList.toggle('finished', !!finished); g.classList.toggle('has-err', err > 0);
+  $('#gprogBar').style.width = (finished ? 100 : Math.max(2, pct)).toFixed(1) + '%';
+  $('#gprogPct').textContent = Math.round(finished ? 100 : pct) + ' %';
+  $('#gprogTxt').textContent = !total ? '' : finished
+    ? `Fertig: ${done} von ${total} Bildern${err ? ` · ${err} mit Fehler (auf der Karte ↻ erneut versuchen)` : ''}`
+    : `${done} von ${total} Bildern fertig · ${running} in Arbeit${err ? ` · ${err} Fehler` : ''}`;
+  $('#gprogZip').hidden = !finished || !done;
 }
 
 /* ---------------- Export ---------------- */
