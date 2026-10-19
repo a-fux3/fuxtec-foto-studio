@@ -6,8 +6,31 @@ export const OUT = 1200, FRAME = 900;
 export function canvas(w, h) { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; }
 const ctx2d = c => c.getContext('2d', { willReadFrequently: true });
 
+/* TIFF erkennen (II*\0 / MM\0*) – Chrome kann TIFF nicht selbst dekodieren */
+export async function isTiff(blob) {
+  if (/\.tiff?$/i.test(blob.name || '') || /tiff/i.test(blob.type || '')) return true;
+  const b = new Uint8Array(await blob.slice(0, 4).arrayBuffer());
+  return (b[0] === 0x49 && b[1] === 0x49 && b[2] === 0x2a && b[3] === 0) || (b[0] === 0x4d && b[1] === 0x4d && b[2] === 0 && b[3] === 0x2a);
+}
+/* TIFF → Canvas (UTIF: unkomprimiert, LZW, ZIP, PackBits, JPEG; 8/16 Bit; RGB, Graustufen, CMYK; größte Seite/Ebene) */
+export async function decodeTiff(blob) {
+  const U = self.UTIF; if (!U) throw new Error('TIFF-Decoder nicht geladen');
+  const buf = await blob.arrayBuffer();
+  const ifds = U.decode(buf);
+  let best = null;
+  for (const f of ifds) { const w = f.t256?.[0], h = f.t257?.[0]; if (w && h && (!best || w * h > best.w * best.h)) best = { f, w, h }; }
+  if (!best) throw new Error('TIFF enthält kein lesbares Bild');
+  U.decodeImage(buf, best.f, ifds);
+  const rgba = U.toRGBA8(best.f);
+  if (!rgba || rgba.length < best.w * best.h * 4) throw new Error('TIFF-Variante wird nicht unterstützt (Kompression ' + (best.f.t259?.[0] ?? '?') + ')');
+  const c = canvas(best.w, best.h);
+  c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(rgba.buffer, rgba.byteOffset, best.w * best.h * 4), best.w, best.h), 0, 0);
+  return c;
+}
+
 /* Datei → ImageBitmap (EXIF-Drehung wird berücksichtigt) */
 export async function loadBitmap(blob) {
+  if (await isTiff(blob)) return decodeTiff(blob);
   try { return await createImageBitmap(blob, { imageOrientation: 'from-image' }); }
   catch { // Fallback für exotische Formate
     const url = URL.createObjectURL(blob);

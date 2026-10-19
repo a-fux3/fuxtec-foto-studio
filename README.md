@@ -25,7 +25,7 @@ Updates: Jeder Push auf `main` deployt automatisch.
 
 ## 2. Bedienung
 
-- Fotos ins Fenster ziehen (JPG, PNG, WebP, beliebig viele). HEIC vorher umwandeln.
+- Fotos ins Fenster ziehen (JPG, PNG, WebP, TIFF – beliebig viele). TIFF wird im Browser gelesen (8/16 Bit, LZW/ZIP/unkomprimiert, RGB/CMYK). HEIC vorher umwandeln.
 - Oben: **KI-Retusche** (KI entscheidet / Aus), **Bildmodell** (Nano Banana 2 / NB Pro), **Parallel** (1–4), **Schatten-Stärke**, **Qualitätskontrolle**.
 - **Klick auf ein fertiges Bild** öffnet die Detailansicht:
   - Ansicht JPG weiß / PNG transparent / Original / Retusche, 900er-Rahmen einblenden

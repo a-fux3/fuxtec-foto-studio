@@ -58,9 +58,9 @@ function saveOpts() {
 
 /* ---------------- Warteschlange ---------------- */
 function addFiles(list) {
-  const files = [...list].filter(f => /^image\/(jpeg|png|webp)$/.test(f.type) || /\.(jpe?g|png|webp)$/i.test(f.name));
+  const files = [...list].filter(f => /^image\/(jpeg|png|webp|tiff)$/.test(f.type) || /\.(jpe?g|png|webp|tiff?)$/i.test(f.name));
   const skipped = list.length - files.length;
-  if (skipped) toast(`${skipped} Datei(en) übersprungen (nur JPG, PNG, WebP – HEIC bitte vorher umwandeln).`, true);
+  if (skipped) toast(`${skipped} Datei(en) übersprungen (nur JPG, PNG, WebP, TIFF – HEIC bitte vorher umwandeln).`, true);
   for (const f of files) {
     const base = f.name.replace(/\.[^.]+$/, '').replace(/[^\w\-. ]+/g, '_').trim() || 'bild';
     const it = { id: Math.random().toString(36).slice(2, 10), file: f, name: f.name, base, status: 'queued', log: [],
@@ -95,18 +95,41 @@ async function cached(key, make) {
   return v;
 }
 const blobCanvas = async (blob, max = 0) => { const bm = await fx.loadBitmap(blob); const c = max ? fx.fitMax(bm, max) : null; if (c && c !== bm) return c; const o = fx.canvas(bm.width, bm.height); o.getContext('2d').drawImage(bm, 0, 0); return o; };
-const getWork = it => cached(it.id + ':work', () => blobCanvas(it.file, WORK_MAX));
+const getWork = it => cached(it.id + ':work', () => blobCanvas(it.src || it.file, WORK_MAX));
 const getRet = it => it.retouch?.blob ? cached(it.id + ':ret:' + it.retouch.url, () => blobCanvas(it.retouch.blob)) : null;
 const getCut = it => cached(it.id + ':cut:' + it.cutKey, () => blobCanvas(it.cutBlobs[it.cutKey], 1800));
 function dropCache(it) { for (const k of [...cache.keys()]) if (k.startsWith(it.id + ':')) cache.delete(k); }
+
+/* Eingangsdatei einmal lesen: Originalmaße merken; TIFF & Co. (vom Browser nicht lesbar) in eine
+ * Arbeitsdatei (max. 2400 px, JPG bzw. PNG bei Transparenz) umwandeln, damit nicht jedes Mal neu dekodiert wird */
+let tiffLock = Promise.resolve();
+async function normalizeInput(it) {
+  const tiff = await fx.isTiff(it.file);
+  if (tiff) { // große TIFFs (45 MP, 16 Bit) nacheinander dekodieren, sonst wird der Speicher knapp
+    step(it, 'prep', 'TIFF wartet');
+    const prev = tiffLock; let release; tiffLock = new Promise(r => (release = r));
+    await prev;
+    try { step(it, 'prep', 'TIFF wird gelesen'); await sleep(30); return await readInput(it, true); } finally { release(); }
+  }
+  return readInput(it, false);
+}
+async function readInput(it, tiff) {
+  const bm = await fx.loadBitmap(it.file);
+  it.w = bm.width; it.h = bm.height;
+  if (!tiff) { bm.close?.(); it.src = it.file; return; }
+  const c = fx.fitMax(bm, WORK_MAX), alpha = fx.hasAlpha(c);
+  it.src = alpha ? await fx.toBlob(c, 'image/png') : await fx.toBlob(c, 'image/jpeg', 0.95);
+  if (bm !== c && bm.width) { bm.width = 0; bm.height = 0; } // großen Puffer sofort freigeben
+  it.log.push(`TIFF ${it.w}×${it.h}px eingelesen`);
+}
 
 /* ---------------- Pipeline pro Bild ---------------- */
 async function process(it) {
   const o = opt();
   step(it, 'prep');
+  if (!it.src) await normalizeInput(it);
   const work = await getWork(it);
-  if (!it.w) {
-    const bm = await fx.loadBitmap(it.file); it.w = bm.width; it.h = bm.height; bm.close?.();
+  if (!it.thumb) {
     it.alphaIn = fx.hasAlpha(work);
     it.thumb = fx.jpegDataUrl(work, 480, 0.8); paint(it);
   }
@@ -172,7 +195,7 @@ async function ensureCutout(it) {
   it.cutBlobs = it.cutBlobs || {};
   if (!it.cutBlobs[key]) {
     step(it, 'cutout');
-    if (it.alphaIn) it.cutBlobs[key] = it.file;
+    if (it.alphaIn) it.cutBlobs[key] = it.src;
     else if (CFG.kie && CFG.claude) {
       const t = await api('/api/photo/cutout', { imageUrl: useRet ? it.retouch.url : it.origUrl });
       it.cutBlobs[key] = await fetchBlob(await pollTask(it, t.taskId));
