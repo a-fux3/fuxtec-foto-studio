@@ -100,3 +100,4 @@ body.has-items .fdrop { min-height: 64px; }
   .fbar-opts .seg, .rng { min-width: 0; width: 100%; }
   .fbar-opts .field { width: 100%; }
 }
+.seg[hidden] { display: none; }

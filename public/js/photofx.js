@@ -279,12 +279,123 @@ export function compose(placed, shadow, bg) {
   x.drawImage(placed.layer, 0, 0); return o;
 }
 
-/* Kompletter Render-Durchlauf aus der Freisteller-Ebene */
-export function renderFinal(cut, s) {
+/* ---------------- KI-Schatten ----------------
+ * Die Bild-KI bekommt das Produkt auf Weiß (ohne Schatten) und malt einen Schatten dazu. Übernommen wird NUR der Schatten:
+ * KI-Bild auf unser Produkt ausrichten → Abdunklung gegenüber dem Weiß außerhalb des Produkts = Schatten-Alpha.
+ * Das Produkt selbst bleibt pixelgenau unser Freisteller (die KI zeichnet es leicht neu). */
+export function productOnWhite(placed) { return compose(placed, null, '#ffffff'); }
+
+function lumArr(c, size) {
+  const t = resized(c, size, size), d = ctx2d(t).getImageData(0, 0, size, size).data, L = new Float32Array(size * size);
+  for (let i = 0, j = 0; i < d.length; i += 4, j++) L[j] = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+  return L;
+}
+function alphaArr(c, size) {
+  const t = resized(c, size, size), d = ctx2d(t).getImageData(0, 0, size, size).data, A = new Uint8Array(size * size);
+  for (let i = 3, j = 0; i < d.length; i += 4, j++) A[j] = d[i]; return A;
+}
+/* Beste Ausrichtung (Skalierung um die Bildmitte + Verschiebung), gemessen nur auf Produktpixeln */
+function align(P, A, M, n, cands) {
+  const c = n / 2; let best = { cost: Infinity };
+  const idx = []; for (let y = 0; y < n; y += 2) for (let x = 0; x < n; x += 2) if (M[y * n + x] > 230) idx.push(y * n + x);
+  if (idx.length < 50) return { cost: Infinity };
+  for (const s of cands.s) for (const dy of cands.d) for (const dx of cands.d) {
+    let sum = 0, cnt = 0;
+    for (const i of idx) {
+      const x = i % n, y = (i / n) | 0, X = Math.round((x - c) * s + c + dx), Y = Math.round((y - c) * s + c + dy);
+      if (X < 0 || Y < 0 || X >= n || Y >= n) { sum += 60; cnt++; continue; }
+      sum += Math.abs(A[Y * n + X] - P[i]); cnt++;
+    }
+    const cost = sum / cnt; if (cost < best.cost) best = { cost, s, dx, dy };
+  }
+  return best;
+}
+const range = (a, b, st) => { const r = []; for (let v = a; v <= b + 1e-9; v += st) r.push(+v.toFixed(4)); return r; };
+
+export function extractAiShadow(ai, placed) {
+  const N = placed.layer.width, white = productOnWhite(placed);
+  // 1) grob (200 px), dann fein (600 px) ausrichten
+  let n = 200, P = lumArr(white, n), A = lumArr(ai, n), M = alphaArr(placed.layer, n);
+  const g = align(P, A, M, n, { s: range(0.95, 1.05, 0.01), d: range(-14, 14, 1) });
+  if (!(g.cost < 40)) return { ok: false, reason: 'KI-Bild passt nicht zum Produkt (Ausrichtung)', cost: g.cost };
+  n = 600; P = lumArr(white, n); A = lumArr(ai, n); M = alphaArr(placed.layer, n);
+  const al = alignXY(P, A, M, n, { s: g.s, dx: g.dx * 3, dy: g.dy * 3 }); // fein um die Grobposition
+  if (!(al.cost < 26)) return { ok: false, reason: 'KI hat das Produkt zu stark verändert', cost: al.cost };
+  // 2) KI-Bild ausgerichtet auf 1200 zeichnen
+  const W = canvas(N, N), wx = W.getContext('2d'), k = N / n, cx = N / 2, s = al.s, dx = al.dx * k, dy = al.dy * k;
+  wx.fillStyle = '#fff'; wx.fillRect(0, 0, N, N); wx.imageSmoothingQuality = 'high';
+  wx.setTransform(1 / s, 0, 0, 1 / s, cx - (cx + dx) / s, cx - (cx + dy) / s); wx.drawImage(ai, 0, 0, N, N); wx.setTransform(1, 0, 0, 1, 0, 0);
+  const d = wx.getImageData(0, 0, N, N).data, pa = ctx2d(placed.layer).getImageData(0, 0, N, N).data;
+  // 3) Bereich, in dem Schatten liegen darf (rund ums Produkt, Schwerpunkt unten)
+  const b = placed.box, x0 = b.x - b.w * 0.14, x1 = b.x + b.w * 1.14, y0 = b.y + b.h * 0.2, y1 = b.y + b.h * 1.2, fx = b.w * 0.07 + 8, fy = b.h * 0.07 + 8;
+  const region = (x, y) => Math.min(1, Math.max(0, (x - x0) / fx), Math.max(0, (x1 - x) / fx)) * Math.min(1, Math.max(0, (y - y0) / fy), Math.max(0, (y1 - y) / fy));
+  // Produkt + 4 px Rand ausschließen (dort zeichnet die KI ihr eigenes Produkt)
+  const ex = new Uint8Array(N * N); for (let i = 0; i < N * N; i++) if (pa[i * 4 + 3] > 8) ex[i] = 1;
+  for (let r = 0; r < 4; r++) { const e2 = ex.slice(); for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) { const i = y * N + x; if (!ex[i] && (ex[i - 1] || ex[i + 1] || ex[i - N] || ex[i + N])) e2[i] = 1; } ex.set(e2); }
+  // 4) Referenz-Weiß = helle Umgebung außerhalb des Schattenbereichs
+  const ref = (() => { const h = new Uint32Array(256); let n2 = 0;
+    for (let y = 0; y < N; y += 3) for (let x = 0; x < N; x += 3) { const i = y * N + x; if (ex[i] || region(x, y) > 0) continue; h[Math.round(0.2126 * d[i * 4] + 0.7152 * d[i * 4 + 1] + 0.0722 * d[i * 4 + 2])]++; n2++; }
+    let acc = 0, v = 255; while (v > 0 && (acc += h[v]) < n2 * 0.1) v--; return n2 > 100 ? Math.max(v, 1) : 255; })();
+  if (ref < 170) return { ok: false, reason: 'KI-Hintergrund nicht weiß', cost: al.cost };
+  // 5) Schatten-Alpha
+  const a = new Float32Array(N * N), filled = new Uint8Array(N * N);
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+    const i = y * N + x; if (ex[i]) continue; filled[i] = 1;
+    const w = region(x, y); if (!w) continue;
+    const R = d[i * 4], G = d[i * 4 + 1], B = d[i * 4 + 2], L = 0.2126 * R + 0.7152 * G + 0.0722 * B;
+    let v = (ref - L) / ref; if (v <= 0.012) continue; v = (v - 0.012) / 0.988;
+    const ch = Math.max(R, G, B) - Math.min(R, G, B); if (ch > 26) v *= Math.max(0, 1 - (ch - 26) / 24); // farbig = kein Schatten
+    a[i] = Math.min(1, v) * w;
+  }
+  // 6) Lücke am Produktrand von außen auffüllen (sonst weißer Saum an den Kontaktstellen)
+  for (let pass = 0; pass < 8; pass++) {
+    const nf = []; for (let y = 1; y < N - 1; y++) for (let x = 1; x < N - 1; x++) {
+      const i = y * N + x; if (filled[i]) continue; let s2 = 0, c2 = 0;
+      for (const j of [i - 1, i + 1, i - N, i + N]) if (filled[j]) { s2 += a[j]; c2++; }
+      if (c2) nf.push([i, s2 / c2]);
+    }
+    if (!nf.length) break; for (const [i, v] of nf) { a[i] = v; filled[i] = 1; }
+  }
+  const S = canvas(N, N), sxc = ctx2d(S), img = sxc.createImageData(N, N);
+  for (let i = 0; i < N * N; i++) img.data[i * 4 + 3] = Math.round(a[i] * 255);
+  sxc.putImageData(img, 0, 0);
+  const out = canvas(N, N), ox = out.getContext('2d'); ox.filter = 'blur(1.2px)'; ox.drawImage(S, 0, 0);
+  return { ok: true, canvas: out, cost: al.cost, ref, align: { s, dx, dy } };
+}
+function alignXY(P, A, M, n, g) {
+  const c = n / 2; let best = { cost: Infinity };
+  const idx = []; for (let y = 0; y < n; y += 3) for (let x = 0; x < n; x += 3) if (M[y * n + x] > 230) idx.push(y * n + x);
+  for (const s of range(g.s - 0.006, g.s + 0.006, 0.003)) for (let dy = g.dy - 4; dy <= g.dy + 4; dy++) for (let dx = g.dx - 4; dx <= g.dx + 4; dx++) {
+    let sum = 0;
+    for (const i of idx) { const x = i % n, y = (i / n) | 0, X = Math.round((x - c) * s + c + dx), Y = Math.round((y - c) * s + c + dy); sum += (X < 0 || Y < 0 || X >= n || Y >= n) ? 60 : Math.abs(A[Y * n + X] - P[i]); }
+    const cost = sum / idx.length; if (cost < best.cost) best = { cost, s, dx, dy };
+  }
+  return best;
+}
+/* KI-Schatten mit Stärke k skalieren: a' = 1 − (1 − a)^k (bleibt weich, kann verstärken) */
+export function scaleShadow(sh, k) {
+  if (Math.abs(k - 1) < 0.01) return sh;
+  const o = canvas(sh.width, sh.height), x = ctx2d(o); x.drawImage(sh, 0, 0);
+  const img = x.getImageData(0, 0, o.width, o.height), d = img.data;
+  for (let i = 3; i < d.length; i += 4) if (d[i]) d[i] = Math.round(255 * (1 - Math.pow(1 - d[i] / 255, k)));
+  x.putImageData(img, 0, 0); return o;
+}
+
+/* Produkt vorbereiten: Tonwerte, Einpassen, Schärfen */
+export function prepareProduct(cut, s) {
   const src = canvas(cut.width, cut.height); src.getContext('2d').drawImage(cut, 0, 0);
   if (s.toneOn && s.tone) applyTone(src, s.tone);
   const placed = placeProduct(src, { offsetY: s.offsetY || 0 });
   sharpen(placed.layer, s.toneOn && s.tone ? (s.tone.sharpen ?? 0.2) : 0.15);
-  const sh = buildShadow(placed, { mode: s.shadowMode, light: s.light, strength: s.strength, contacts: { manual: s.manualContacts, ai: s.aiContacts } });
+  return placed;
+}
+export const AI_SHADOW_GAIN = 1.3; // KI-Schatten sind eher zart – Grundverstärkung
+
+/* Kompletter Render-Durchlauf. aiShadow = extrahierte KI-Schattenebene (1200×1200) oder null */
+export function renderFinal(cut, s, aiShadow) {
+  const placed = prepareProduct(cut, s);
+  let sh;
+  if (s.shadowSource === 'ai' && aiShadow) sh = { canvas: scaleShadow(aiShadow, (s.strength ?? 1) * AI_SHADOW_GAIN), contacts: [], source: 'KI' };
+  else sh = buildShadow(placed, { mode: s.shadowMode, light: s.light, strength: s.strength, contacts: { manual: s.manualContacts, ai: s.aiContacts } });
   return { placed, shadow: sh, jpg: compose(placed, sh.canvas, '#ffffff'), png: compose(placed, sh.canvas, null) };
 }

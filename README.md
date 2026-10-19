@@ -2,7 +2,7 @@
 
 Bulk-Bearbeitung von Lieferanten-Produktfotos statt Agentur. Läuft als eigener Cloudflare Worker, Bedienung im Chrome.
 
-**Pro Bild:** Upload in den Kie-Speicher → KI-Analyse (Claude) → Retusche nur bei Bedarf (Nano Banana 2 / Pro) → Qualitätskontrolle Original vs. Retusche → Freistellen (recraft) → im Browser: Farbkorrektur, Produkt im **900 × 900**-Rahmen auf **1200 × 1200**, Schärfen, fotorealistischer Schatten → **JPG weiß + PNG transparent**, alles als ZIP.
+**Pro Bild:** Upload in den Kie-Speicher → KI-Analyse (Claude) → Retusche nur bei Bedarf (Nano Banana 2 / Pro) → Qualitätskontrolle Original vs. Retusche → Freistellen (recraft) → im Browser: Farbkorrektur, Produkt im **900 × 900**-Rahmen auf **1200 × 1200**, Schärfen, **KI-Schatten** → **JPG weiß + PNG transparent**, alles als ZIP.
 
 Bilder werden nicht bei Cloudflare gespeichert: Sie liegen 24 h im Kie-Speicher und ansonsten nur im Browser-Tab.
 
@@ -36,6 +36,10 @@ Updates: Jeder Push auf `main` deployt automatisch.
 - **Alle als ZIP:** `JPG/`, `PNG/` und `protokoll.csv` (Produkt, Retusche, QA-Ergebnis, Hinweise).
 - Tab offen lassen, bis das ZIP heruntergeladen ist.
 
+### KI-Schatten
+Das freigestellte Produkt geht auf Weiß an die Bild-KI (Standard Nano Banana 2, umschaltbar auf 2.1, Pro, GPT Image 2.5), die einen weichen Studioschatten malt. Übernommen wird **nur der Schatten**: Das Tool richtet das KI-Bild auf das Produkt aus und rechnet die Abdunklung außerhalb des Produkts als Schattenebene heraus. Das Produkt selbst bleibt pixelgenau der eigene Freisteller, auch im PNG mit transparentem Hintergrund.
+Zeichnet die KI das Produkt zu stark neu oder färbt den Hintergrund, wird automatisch der berechnete Schatten genommen (Hinweis „Schatten berechnet“). In der Detailansicht: KI-Schatten/Berechnet umschalten, Modell wählen, „KI-Schatten neu erzeugen“, Stärke 0–200 %.
+
 ## 3. Einstellungen (`wrangler.jsonc` → `vars`)
 
 | Variable | Standard | Zweck |
@@ -44,6 +48,7 @@ Updates: Jeder Push auf `main` deployt automatisch.
 | `CLAUDE_MODEL` | `claude-opus-5-5` | Analyse + Qualitätskontrolle (fällt bei Fehler einmal auf Sonnet zurück) |
 | `KIE_EDIT_MODEL` | `nano-banana-2` | Standard-Retuschemodell |
 | `KIE_REMOVE_BG_MODEL` | `recraft/remove-background` | Freistellen |
+| `KIE_SHADOW_MODEL` | `nano-banana-2` | Standardmodell für den KI-Schatten |
 
 ## 4. Lokal testen
 

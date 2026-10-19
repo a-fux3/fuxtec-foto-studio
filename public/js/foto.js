@@ -6,7 +6,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const WORK_MAX = 2400;          // Arbeitsauflösung (reicht für 900 px Produkt, bleibt unter Kie-Limits)
-const STEPS = { queued: 'Wartet', prep: 'Vorbereiten', upload: 'Hochladen', analyze: 'KI-Analyse', retouch: 'Retusche', qa: 'Qualitätskontrolle', cutout: 'Freistellen', render: 'Schatten & Export', done: 'Fertig', error: 'Fehler' };
+const STEPS = { queued: 'Wartet', prep: 'Vorbereiten', upload: 'Hochladen', analyze: 'KI-Analyse', retouch: 'Retusche', qa: 'Qualitätskontrolle', cutout: 'Freistellen', shadow: 'KI-Schatten', render: 'Schatten & Export', done: 'Fertig', error: 'Fehler' };
 
 let CFG = { kie: false, claude: false };
 const items = []; let running = 0, current = null;
@@ -15,8 +15,11 @@ const opt = () => ({
   editModel: document.querySelector('input[name=editModel]:checked').value,
   conc: +document.querySelector('input[name=conc]:checked').value,
   strength: +$('#strength').value / 100,
-  qa: $('#qa').checked
+  qa: $('#qa').checked,
+  shadowSrc: document.querySelector('input[name=shadowSrc]:checked')?.value || 'ai',
+  shadowModel: document.querySelector('input[name=shadowModel]:checked')?.value || 'nano-banana-2'
 });
+const SHADOW_MODEL_LABEL = { 'nano-banana-2': 'Nano Banana 2', 'nano-banana-2-1': 'Nano Banana 2.1', 'nano-banana-pro': 'NB Pro', 'gpt-image-2-5-flare-image-to-image': 'GPT Image 2.5' };
 
 /* ---------------- Start ---------------- */
 init();
@@ -52,7 +55,7 @@ async function init() {
   initDetail();
 }
 function saveOpts() {
-  const o = opt(); try { localStorage.setItem('foto-opts', JSON.stringify({ retouch: o.retouch, editModel: o.editModel, conc: o.conc, strength: $('#strength').value, qa: o.qa })); } catch { }
+  const o = opt(); try { localStorage.setItem('foto-opts', JSON.stringify({ retouch: o.retouch, editModel: o.editModel, conc: o.conc, strength: $('#strength').value, qa: o.qa, shadowSrc: o.shadowSrc, shadowModel: o.shadowModel })); } catch { }
   pump();
 }
 
@@ -64,7 +67,7 @@ function addFiles(list) {
   for (const f of files) {
     const base = f.name.replace(/\.[^.]+$/, '').replace(/[^\w\-. ]+/g, '_').trim() || 'bild';
     const it = { id: Math.random().toString(36).slice(2, 10), file: f, name: f.name, base, status: 'queued', log: [],
-      r: { toneOn: true, shadowMode: 'floor', light: 'center', strength: opt().strength, useRetouch: true } };
+      r: { toneOn: true, shadowMode: 'floor', light: 'center', strength: opt().strength, useRetouch: true, shadowSource: opt().shadowSrc } };
     items.push(it); $('#grid').append(card(it));
   }
   updateProgress(); pump();
@@ -154,6 +157,9 @@ async function process(it) {
   // 4) Freistellen
   await ensureCutout(it);
 
+  // 5) KI-Schatten (Bild-KI malt den Schatten, übernommen wird nur der Schatten)
+  if (it.r.shadowSource === 'ai') await ensureAiShadow(it);
+
   // 5) Tonwerte, Rahmen, Schatten
   step(it, 'render'); await rerender(it);
   it.status = 'done'; paint(it);
@@ -207,10 +213,33 @@ async function ensureCutout(it) {
   it.cutKey = key;
 }
 
+const aiShadowFresh = it => it.aiShadow && it.aiShadow.key === it.cutKey;
+async function ensureAiShadow(it, { force = false, model } = {}) {
+  const r = it.r;
+  if (!(CFG.kie && CFG.claude) || r.shadowMode === 'none') { r.shadowSource = 'calc'; return; }
+  if (aiShadowFresh(it) && !force) return;
+  step(it, 'shadow');
+  const placed = fx.prepareProduct(await getCut(it), r);
+  const up = await api('/api/photo/upload', { base64Data: fx.jpegDataUrl(fx.productOnWhite(placed), 1200, 0.94), uploadPath: 'fuxtec-foto', fileName: `${it.id}-weiss.jpg` });
+  const t = await api('/api/photo/shadow', { imageUrl: up.url, mode: r.shadowMode, light: r.light, model: model || opt().shadowModel });
+  const ai = await blobCanvas(await fetchBlob(await pollTask(it, t.taskId)));
+  const big = fx.canvas(placed.layer.width, placed.layer.height); big.getContext('2d').drawImage(ai, 0, 0, big.width, big.height);
+  await sleep(0);
+  const ex = fx.extractAiShadow(big, placed);
+  if (!ex.ok) {
+    it.log.push(`KI-Schatten (${SHADOW_MODEL_LABEL[t.model] || t.model}) verworfen: ${ex.reason} – berechneter Schatten`);
+    it.aiShadowFail = ex.reason; r.shadowSource = 'calc'; return;
+  }
+  it.aiShadow = { key: it.cutKey, blob: await fx.toBlob(ex.canvas, 'image/png'), model: t.model, cost: ex.cost, at: Date.now() };
+  it.aiShadowFail = null;
+  it.log.push(`KI-Schatten: ${SHADOW_MODEL_LABEL[t.model] || t.model} (Abweichung Produkt ${ex.cost.toFixed(1)})`);
+}
+
 async function rerender(it) {
   if (!it.cutBlobs?.[it.cutKey]) return;
   const r = it.r, cut = await getCut(it);
-  const out = fx.renderFinal(cut, { ...r, manualContacts: r.manualContacts, aiContacts: r.aiContacts });
+  const aiSh = r.shadowSource === 'ai' && aiShadowFresh(it) ? await cached(it.id + ':sh:' + it.aiShadow.at, () => blobCanvas(it.aiShadow.blob)) : null;
+  const out = fx.renderFinal(cut, { ...r, manualContacts: r.manualContacts, aiContacts: r.aiContacts }, aiSh);
   it.resultThumb = fx.jpegDataUrl(out.jpg, 480, 0.82);
   it.contacts = out.shadow.contacts; it.contactSource = out.shadow.source;
   it.zipped = false; paint(it);
@@ -276,6 +305,7 @@ function paint(it, el = document.getElementById('c-' + it.id)) {
   if (a && !a.mock) tags.push(`<span class="tag">${esc(a.product)}</span>`);
   if (it.retouch) tags.push(it.retouch.accepted ? '<span class="tag ok">Retuschiert</span>' : '<span class="tag warn">Retusche verworfen</span>');
   else if (a && !a.mock && !a.retouch_needed) tags.push('<span class="tag">Keine Retusche nötig</span>');
+  if (it.status === 'done') tags.push(it.r.shadowSource === 'ai' && aiShadowFresh(it) ? '<span class="tag ok">KI-Schatten</span>' : it.aiShadowFail ? `<span class="tag warn" title="${esc(it.aiShadowFail)}">Schatten berechnet</span>` : '');
   if (a?.warnings?.length) tags.push(`<span class="tag warn" title="${esc(a.warnings.join('\n'))}"><svg class="i"><use href="#i-alert"/></svg>${a.warnings.length}</span>`);
   el.querySelector('.fc-tags').innerHTML = tags.join('');
   el.querySelector('.fc-retry').hidden = it.status !== 'error';
@@ -333,6 +363,7 @@ function initDetail() {
   $('#dResetContacts').onclick = () => { if (!current) return; current.r.manualContacts = null; rerender(current).then(renderSide); };
   $('#dCanvas').addEventListener('click', e => {
     if (!current?.out || !$('#dEditContacts').checked || viewMode() !== 'jpg' && viewMode() !== 'png') return;
+    if (current.r.shadowSource === 'ai') return toast('Bodenpunkte gelten nur für den berechneten Schatten – rechts auf „Berechnet“ umstellen.', true);
     const c = e.currentTarget, rect = c.getBoundingClientRect(); // object-fit: contain → Letterbox herausrechnen
     const k = Math.min(rect.width / c.width, rect.height / c.height), ox = (rect.width - c.width * k) / 2, oy = (rect.height - c.height * k) / 2;
     const p = { x: (e.clientX - rect.left - ox) / k, y: (e.clientY - rect.top - oy) / k };
@@ -392,10 +423,15 @@ function renderSide() {
       <button class="btn ghost" id="sToneReset">KI-Werte wiederherstellen</button>
     </section>
     <section><h3>Schatten</h3>
-      <div class="seg"><label><input type="radio" name="sMode" value="floor" ${r.shadowMode === 'floor' ? 'checked' : ''}><span>Boden</span></label><label><input type="radio" name="sMode" value="flat" ${r.shadowMode === 'flat' ? 'checked' : ''}><span>Flach</span></label><label><input type="radio" name="sMode" value="none" ${r.shadowMode === 'none' ? 'checked' : ''}><span>Ohne</span></label></div>
-      <div class="seg"><label><input type="radio" name="sLight" value="left" ${r.light === 'left' ? 'checked' : ''}><span>Licht links</span></label><label><input type="radio" name="sLight" value="center" ${r.light === 'center' ? 'checked' : ''}><span>Mitte</span></label><label><input type="radio" name="sLight" value="right" ${r.light === 'right' ? 'checked' : ''}><span>rechts</span></label></div>
-      <label class="rng"><span>Stärke<output>${Math.round(r.strength * 100)} %</output></span><input type="range" id="sStrength" min="0" max="150" step="5" value="${Math.round(r.strength * 100)}"></label>
-      <p class="hint">Bodenpunkte: ${it.contactSource || '–'} (${it.contacts?.length || 0})</p>
+      ${CFG.kie && CFG.claude ? `<div class="seg"><label><input type="radio" name="sSrc" value="ai" ${r.shadowSource === 'ai' ? 'checked' : ''}><span>KI-Schatten</span></label><label><input type="radio" name="sSrc" value="calc" ${r.shadowSource !== 'ai' ? 'checked' : ''}><span>Berechnet</span></label></div>` : ''}
+      ${r.shadowSource === 'ai' ? `<p class="hint">${aiShadowFresh(it) ? `${esc(SHADOW_MODEL_LABEL[it.aiShadow.model] || it.aiShadow.model)} · nur der Schatten wird übernommen, das Produkt bleibt unverändert.` : 'Noch kein KI-Schatten für diese Version.'}</p>
+      <div class="seg" id="sShModel">${Object.entries(SHADOW_MODEL_LABEL).map(([k, l]) => `<label><input type="radio" name="sShModel" value="${k}" ${(it.aiShadow?.model || opt().shadowModel) === k ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div>
+      <button class="btn" id="sShadowNew"><svg class="i"><use href="#i-refresh"/></svg>KI-Schatten neu erzeugen</button>` : ''}
+      ${it.aiShadowFail && r.shadowSource !== 'ai' ? `<div class="fd-warn"><svg class="i"><use href="#i-alert"/></svg>KI-Schatten verworfen: ${esc(it.aiShadowFail)}</div>` : ''}
+      <div class="seg" ${r.shadowSource === 'ai' ? 'hidden' : ''}><label><input type="radio" name="sMode" value="floor" ${r.shadowMode === 'floor' ? 'checked' : ''}><span>Boden</span></label><label><input type="radio" name="sMode" value="flat" ${r.shadowMode === 'flat' ? 'checked' : ''}><span>Flach</span></label><label><input type="radio" name="sMode" value="none" ${r.shadowMode === 'none' ? 'checked' : ''}><span>Ohne</span></label></div>
+      <div class="seg" ${r.shadowSource === 'ai' ? 'hidden' : ''}><label><input type="radio" name="sLight" value="left" ${r.light === 'left' ? 'checked' : ''}><span>Licht links</span></label><label><input type="radio" name="sLight" value="center" ${r.light === 'center' ? 'checked' : ''}><span>Mitte</span></label><label><input type="radio" name="sLight" value="right" ${r.light === 'right' ? 'checked' : ''}><span>rechts</span></label></div>
+      <label class="rng"><span>Stärke<output>${Math.round(r.strength * 100)} %</output></span><input type="range" id="sStrength" min="0" max="200" step="5" value="${Math.round(r.strength * 100)}"></label>
+      ${r.shadowSource !== 'ai' ? `<p class="hint">Bodenpunkte: ${it.contactSource || '–'} (${it.contacts?.length || 0})</p>` : ''}
     </section>
     <section class="fd-dl">
       <button class="btn" id="sJpg"><svg class="i"><use href="#i-download"/></svg>JPG</button>
@@ -409,11 +445,17 @@ function renderSide() {
   $('#sLevels').onchange = e => { r.tone = { ...r.tone, levels: e.target.checked }; re(); };
   $('#sToneReset').onclick = () => { r.tone = { ...it.analysis.tone }; r.toneOn = true; re(); renderSide(); };
   s.querySelectorAll('input[name=sMode]').forEach(x => x.onchange = () => { r.shadowMode = x.value; re(); renderSide(); });
+  s.querySelectorAll('input[name=sSrc]').forEach(x => x.onchange = () => {
+    r.shadowSource = x.value;
+    if (x.value === 'ai' && !aiShadowFresh(it)) { if (r.shadowMode === 'none') r.shadowMode = 'floor'; redo(it, () => ensureAiShadow(it)); }
+    else { re(); renderSide(); }
+  });
+  const sn = $('#sShadowNew'); if (sn) sn.onclick = () => redo(it, () => { r.shadowSource = 'ai'; if (r.shadowMode === 'none') r.shadowMode = 'floor'; return ensureAiShadow(it, { force: true, model: s.querySelector('input[name=sShModel]:checked')?.value }); });
   s.querySelectorAll('input[name=sLight]').forEach(x => x.onchange = () => { r.light = x.value; re(); });
   $('#sStrength').oninput = e => { r.strength = +e.target.value / 100; r.ownStrength = true; e.target.previousElementSibling.querySelector('output').textContent = e.target.value + ' %'; schedule(re); };
   $('#sJpg').onclick = async () => download((await outBlobs(it)).jpg, it.base + '.jpg');
   $('#sPng').onclick = async () => download((await outBlobs(it)).png, it.base + '.png');
-  const ur = $('#sUseRet'); if (ur) ur.onchange = () => redo(it, async () => { r.useRetouch = ur.checked; await ensureCutout(it); });
+  const ur = $('#sUseRet'); if (ur) ur.onchange = () => redo(it, async () => { r.useRetouch = ur.checked; await ensureCutout(it); if (r.shadowSource === 'ai') await ensureAiShadow(it); });
   const rb = $('#sRetouch'); if (rb) rb.onclick = () => {
     const extra = $('#sExtra').value.trim();
     if (!extra && !it.analysis.fixes?.length) return toast('Bitte eine Anweisung eingeben.', true);
@@ -422,6 +464,7 @@ function renderSide() {
       it.retouch = null; if (it.cutBlobs) delete it.cutBlobs.ret;
       await runRetouch(it, { qa: opt().qa, model: opt().editModel, extra });
       await ensureCutout(it);
+      if (r.shadowSource === 'ai') await ensureAiShadow(it);
     });
   };
 }

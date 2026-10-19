@@ -62,7 +62,19 @@
           <label><input type="radio" name="conc" value="3" checked><span>3</span></label>
           <label><input type="radio" name="conc" value="4"><span>4</span></label>
         </div></div>
-      <label class="field rng"><span class="flabel">Schatten-Stärke <output id="strengthOut">100 %</output></span><input type="range" id="strength" min="0" max="150" step="5" value="100"></label>
+      <div class="field"><span class="flabel">Schatten</span>
+        <div class="seg" role="radiogroup" aria-label="Schatten">
+          <label><input type="radio" name="shadowSrc" value="ai" checked><span>KI-Schatten</span></label>
+          <label><input type="radio" name="shadowSrc" value="calc"><span>Berechnet</span></label>
+        </div></div>
+      <div class="field" id="shadowModelField"><span class="flabel">Schatten-Modell</span>
+        <div class="seg" role="radiogroup" aria-label="Schatten-Modell">
+          <label><input type="radio" name="shadowModel" value="nano-banana-2" checked><span>NB 2</span></label>
+          <label><input type="radio" name="shadowModel" value="nano-banana-2-1"><span>NB 2.1</span></label>
+          <label><input type="radio" name="shadowModel" value="nano-banana-pro"><span>NB Pro</span></label>
+          <label><input type="radio" name="shadowModel" value="gpt-image-2-5-flare-image-to-image"><span>GPT 2.5</span></label>
+        </div></div>
+      <label class="field rng"><span class="flabel">Schatten-Stärke <output id="strengthOut">100 %</output></span><input type="range" id="strength" min="0" max="200" step="5" value="100"></label>
       <label class="tgl"><input type="checkbox" id="qa" checked><span class="sw"></span><span><b>Qualitätskontrolle</b><small>Claude vergleicht Retusche mit Original, verwirft Abweichungen.</small></span></label>
     </div>
   </section>

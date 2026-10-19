@@ -3,10 +3,11 @@
  * alle Kie-Aufgaben arbeiten mit diesen URLs, Ergebnisse holt der Browser über /api/photo/fetch.
  * Vars: KIE_EDIT_MODEL (nano-banana-2), KIE_REMOVE_BG_MODEL, CLAUDE_PHOTO_MODEL (sonst CLAUDE_MODEL)
  */
-import { ANALYZE_SYSTEM, ANALYZE_TOOL, QA_SYSTEM, QA_TOOL, retouchPrompt } from './photo-prompts.js';
+import { ANALYZE_SYSTEM, ANALYZE_TOOL, QA_SYSTEM, QA_TOOL, retouchPrompt, shadowPrompt } from './photo-prompts.js';
 
 const KIE_UPLOAD = 'https://kieai.redpandaai.co/api/file-base64-upload';
 const EDIT_MODELS = ['nano-banana-2', 'nano-banana-pro'];
+const SHADOW_MODELS = ['nano-banana-2', 'nano-banana-2-1', 'nano-banana-pro', 'gpt-image-2-5-flare-image-to-image'];
 
 export async function handlePhoto(req, env, url, h) {
   const { json, err, claude, claudeReady, kieCreate, kieStatus, imgBlock, sniff } = h;
@@ -15,7 +16,8 @@ export async function handlePhoto(req, env, url, h) {
   const model = env.CLAUDE_PHOTO_MODEL || env.CLAUDE_MODEL;
 
   if (p === '/config') return json({
-    claude: claudeReady(env), kie: !!env.KIE_API_KEY, model, editModel: env.KIE_EDIT_MODEL || 'nano-banana-2', editModels: EDIT_MODELS
+    claude: claudeReady(env), kie: !!env.KIE_API_KEY, model, editModel: env.KIE_EDIT_MODEL || 'nano-banana-2', editModels: EDIT_MODELS,
+    shadowModel: env.KIE_SHADOW_MODEL || 'nano-banana-2', shadowModels: SHADOW_MODELS
   });
 
   /* Upload: Body {base64Data, fileName} wird ungeparst an Kie weitergereicht (spart Worker-CPU) */
@@ -53,6 +55,17 @@ export async function handlePhoto(req, env, url, h) {
     const system = QA_SYSTEM.replace('FIXES', (b.fixes || []).map(f => '- ' + f).join('\n') || '-');
     const content = [{ type: 'text', text: 'Bild A – Original:' }, imgBlock(b.original), { type: 'text', text: 'Bild B – Retusche:' }, imgBlock(b.retouched), { type: 'text', text: 'Vergleiche A und B.' }];
     return json(await claude(env, { system, tool: QA_TOOL, maxTokens: 1200, model, messages: [{ role: 'user', content }] }));
+  }
+
+  /* KI-Schatten: Produkt auf Weiß → Bild-KI malt den Schatten (übernommen wird im Browser nur der Schatten) */
+  if (p === '/shadow' && m === 'POST') {
+    const b = await body(); if (!env.KIE_API_KEY) return json({ mock: true });
+    const model = SHADOW_MODELS.includes(b.model) ? b.model : (env.KIE_SHADOW_MODEL || 'nano-banana-2');
+    const prompt = shadowPrompt(b.mode, b.light);
+    const input = model.startsWith('gpt-image')
+      ? { prompt, input_urls: [b.imageUrl], aspect_ratio: '1:1', resolution: '1K' }
+      : { prompt, image_input: [b.imageUrl], aspect_ratio: '1:1', resolution: '1K', output_format: 'png' };
+    return json({ taskId: await kieCreate(env, model, input), model });
   }
 
   /* Freistellen */

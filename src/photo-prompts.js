@@ -109,3 +109,15 @@ export const QA_TOOL = {
     required: ['accept', 'product_changed', 'fixed', 'artifacts', 'score', 'reason', 'retry_hint']
   }
 };
+
+/* KI-Schatten: Eingabe = Produkt auf reinem Weiß (1200×1200, ohne Schatten). Übernommen wird später nur der Schatten. */
+export function shadowPrompt(mode, light) {
+  const lightTxt = light === 'left' ? 'The key light comes slightly from the left, so the shadow falls a little to the right.'
+    : light === 'right' ? 'The key light comes slightly from the right, so the shadow falls a little to the left.' : 'The key light is centered above and slightly in front of the product.';
+  const where = mode === 'flat'
+    ? 'The product lies flat on a seamless pure white surface, photographed from above. Add a soft, natural drop shadow directly beneath and around its edges, slightly offset downward.'
+    : 'The product stands on a seamless pure white studio floor. Add dark, soft contact shadows directly under every point where it touches the floor (wheels, feet, base, skids, bar tip), blending into a smooth, diffuse shadow that spreads naturally on the floor beneath and slightly behind the product.';
+  return `Professional e-commerce packshot retouch: add a photorealistic, clearly visible but smooth shadow to this product, lit by a large softbox. ${where} ${lightTxt}
+Soft gradual edges, no hard outlines, no reflection, no floor texture, no horizon line, no gradient or vignette – the rest of the background stays pure white #FFFFFF.
+Keep the product exactly as it is: same position, size, angle, framing, colors, details, logos and text. Do not move, scale, crop or re-render it. Only add the shadow.`;
+}
