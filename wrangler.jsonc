@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "fuxtec-foto-studio",
+  "main": "src/worker.js",
+  "compatibility_date": "2025-09-01",
+  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": true },
+  "vars": {
+    // "kie" = Claude über Kie (nutzt KIE_API_KEY) · "anthropic" = eigener Anthropic-Key (ANTHROPIC_API_KEY)
+    "CLAUDE_PROVIDER": "kie",
+    // Analyse + Qualitätskontrolle
+    "CLAUDE_MODEL": "claude-opus-5-5",
+    // Retusche-Modell (in der App umschaltbar): nano-banana-2 | nano-banana-pro
+    "KIE_EDIT_MODEL": "nano-banana-2",
+    "KIE_REMOVE_BG_MODEL": "recraft/remove-background"
+  },
+  "observability": { "enabled": true }
+}

@@ -1,0 +1,3 @@
+# Für lokales Testen: kopieren nach .dev.vars und Werte eintragen (wird NICHT hochgeladen)
+KIE_API_KEY=...
+APP_PASSWORD=ein-gutes-passwort
