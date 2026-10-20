@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="robots" content="noindex">
+<title>Anmelden · FUXTEC Fotostudio</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 82 90'%3E%3Crect width='82' height='90' rx='14' fill='%23FE8A00'/%3E%3C/svg%3E">
+<style>
+@font-face { font-family: "Geist"; font-weight: 100 900; font-display: swap; src: url(/assets/fonts/ui/geist-latin-wght-normal.woff2) format("woff2"); }
+@font-face { font-family: "UI Roboto"; font-weight: 900; font-display: swap; src: url(/assets/fonts/roboto-latin-900-normal.woff2) format("woff2"); }
+:root { --ground: #1f1f1f; --surface: #292929; --well: #1b1b1b; --line-2: #4b4b4b; --text: #f3f3f3; --mute: #a6a6a6; --faint: #737373; --fux: #fe8a00; --fux-2: #ff9f2e; --err: #ff6b5e; --ease: cubic-bezier(.2, .7, .2, 1); }
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body {
+  min-height: 100vh; display: grid; place-items: center; padding: 24px 16px;
+  font: 14px/1.5 "Geist", system-ui, sans-serif; color: var(--text); -webkit-font-smoothing: antialiased;
+  background:
+    radial-gradient(42% 38% at 50% 46%, rgba(254, 138, 0, .08), transparent 70%),
+    radial-gradient(rgba(255, 255, 255, .05) 1px, transparent 1.2px) 0 0 / 22px 22px,
+    var(--ground);
+}
+.card {
+  width: min(400px, 100%); padding: 28px 26px 26px; border-radius: 18px;
+  background: var(--surface); border: 1px solid rgba(255, 255, 255, .08);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .45), inset 0 1px 0 rgba(255, 255, 255, .04);
+  animation: in .4s var(--ease) both;
+}
+@keyframes in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.brand { display: flex; align-items: center; gap: 12px; }
+.brand svg { width: 34px; height: 37px; fill: var(--fux); flex: none; }
+.brand h1 { margin: 0; font: 900 21px/1 "UI Roboto", "Geist", sans-serif; text-transform: uppercase; letter-spacing: .01em; }
+.lead { margin: 14px 0 22px; color: var(--mute); font-size: 13.5px; }
+label { display: block; margin-bottom: 8px; font-weight: 600; font-size: 13.5px; }
+.field { position: relative; }
+input[type=password], input[type=text] {
+  width: 100%; height: 48px; padding: 0 48px 0 14px; border-radius: 10px;
+  background: var(--well); color: var(--text); border: 1px solid var(--line-2);
+  font: 500 16px "Geist", system-ui, sans-serif; letter-spacing: .02em; transition: border-color .15s, box-shadow .15s;
+}
+input:focus { outline: none; border-color: var(--fux); box-shadow: 0 0 0 3px rgba(254, 138, 0, .16); }
+.eye { position: absolute; right: 6px; top: 6px; width: 36px; height: 36px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: var(--faint); cursor: pointer; }
+.eye:hover { color: var(--text); background: rgba(255, 255, 255, .06); }
+.eye:focus-visible { outline: 2px solid var(--fux); outline-offset: 1px; }
+.eye svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.error { display: none; align-items: center; gap: 8px; margin: 10px 0 0; color: var(--err); font-size: 13px; }
+.has-error .error { display: flex; }
+.has-error input { border-color: rgba(255, 107, 94, .7); }
+.has-error .card { animation: shake .38s var(--ease); }
+@keyframes shake { 20%, 60% { transform: translateX(-6px); } 40%, 80% { transform: translateX(6px); } }
+button[type=submit] {
+  width: 100%; height: 50px; margin-top: 20px; border: 0; border-radius: 12px; cursor: pointer;
+  background: var(--fux); color: #1a0e00; font: 900 14px/1 "UI Roboto", "Geist", sans-serif; text-transform: uppercase; letter-spacing: .04em;
+  box-shadow: 0 8px 22px rgba(254, 138, 0, .25); transition: background .15s, transform .1s;
+}
+button[type=submit]:hover { background: var(--fux-2); }
+button[type=submit]:active { transform: translateY(1px); }
+button[type=submit]:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+button[type=submit][disabled] { opacity: .7; cursor: progress; }
+.foot { margin: 18px 0 0; color: var(--faint); font-size: 12px; text-align: center; }
+@media (prefers-reduced-motion: reduce) { .card, .has-error .card { animation: none; } }
+</style>
+</head>
+<body>
+<main class="card">
+  <div class="brand"><svg viewBox="0 0 81.39 89.46" aria-hidden="true"><path fill-rule="evenodd" d="M 49.769531 50.605469 C 49.234375 52.792969 48.679688 54.953125 48.171875 57.167969 C 50.355469 56.644531 52.519531 56.097656 54.707031 55.570312 C 55.257812 53.398438 55.777344 51.179688 56.332031 49.007812 L 56.277344 49.007812 C 54.117188 49.546875 51.949219 50.085938 49.769531 50.605469 M 25.878906 55.570312 C 28.074219 56.089844 30.234375 56.652344 32.441406 57.167969 C 31.910156 54.984375 31.363281 52.820312 30.839844 50.632812 C 28.679688 50.0625 26.464844 49.546875 24.277344 49.007812 C 24.789062 51.210938 25.355469 53.367188 25.878906 55.570312 M 30.691406 24.667969 C 36.257812 22.429688 46.496094 21.855469 52.074219 24.578125 C 57.386719 12.21875 66.414062 3.570312 80.789062 0.273438 C 77.09375 7.761719 73.722656 15.785156 71.648438 24.996094 C 70.640625 29.480469 69.753906 34.789062 69.996094 40.28125 C 70.230469 45.675781 71.195312 50.371094 72.921875 54.269531 C 57.421875 60.945312 49.585938 75.285156 40.984375 88.867188 C 37.316406 81.648438 32.996094 74.964844 27.949219 69.113281 C 22.894531 63.269531 17.09375 58.074219 9.875 54.414062 C 11.1875 50 12.332031 45.1875 12.417969 39.632812 C 12.59375 28.230469 9.574219 19.34375 6.0625 11.421875 C 5.179688 9.433594 4.160156 7.53125 3.164062 5.652344 C 2.144531 3.746094 1.003906 1.832031 0 0.0664062 C 16.027344 2.46875 24.515625 12.414062 30.691406 24.667969 "/></svg><h1>Fotostudio</h1></div>
+  <p class="lead">Melde dich mit dem Team-Passwort an. Danach bleibst du 30 Tage angemeldet.</p>
+  <form method="post" action="/api/login" id="f">
+    <input type="hidden" name="next" id="next" value="/">
+    <label for="pw">Passwort</label>
+    <div class="field">
+      <input type="password" id="pw" name="password" autocomplete="current-password" required autofocus aria-describedby="err">
+      <button type="button" class="eye" id="eye" aria-label="Passwort anzeigen" aria-pressed="false"><svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></button>
+    </div>
+    <p class="error" id="err" role="alert">Passwort stimmt nicht. Bitte noch einmal versuchen.</p>
+    <button type="submit" id="go">Anmelden</button>
+  </form>
+  <p class="foot">Kein Passwort? Wende dich an das Content-Team.</p>
+</main>
+<script>
+  const q = new URLSearchParams(location.search);
+  document.getElementById('next').value = q.get('next') || '/';
+  if (q.get('e')) { document.body.classList.add('has-error'); history.replaceState(null, '', location.pathname + (q.get('next') ? '?next=' + encodeURIComponent(q.get('next')) : '')); }
+  const pw = document.getElementById('pw'), eye = document.getElementById('eye');
+  pw.addEventListener('input', () => document.body.classList.remove('has-error'));
+  eye.addEventListener('click', () => { const show = pw.type === 'password'; pw.type = show ? 'text' : 'password'; eye.setAttribute('aria-pressed', show); eye.setAttribute('aria-label', show ? 'Passwort verbergen' : 'Passwort anzeigen'); pw.focus(); });
+  document.getElementById('f').addEventListener('submit', () => { const b = document.getElementById('go'); b.disabled = true; b.textContent = 'Anmelden …'; });
+</script>
+</body>
+</html>

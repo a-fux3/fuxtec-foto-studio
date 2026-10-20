@@ -63,6 +63,7 @@ function renderStatus() {
       health.claudeErr ? esc(health.claudeErr) : d?.claude?.ok === false ? esc(d.claude.error || '') : `Analyse, Qualitätskontrolle, Freisteller-Vergleich · ${esc(CFG.model || '')} über Kie`)}
     ${row(balance != null ? balance * credEur() >= 2 : null, 'Guthaben', balance != null ? eur(balance * credEur()) : '–', balance != null ? `${Math.round(balance)} Kie-Credits${balance * credEur() < 2 ? ' – bald aufladen' : ''}` : 'Wird mit dem Kie-Schlüssel abgefragt')}
     <button class="btn" id="diagBtn">Verbindung testen</button>
+    <a class="btn ghost" href="/api/logout" style="margin-top:6px;width:100%">Abmelden</a>
     <p class="stamp">${health.checked ? 'Zuletzt geprüft ' + health.checked.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : ''}</p>`;
   const db = $('#diagBtn'); if (db) db.onclick = runDiag;
 }
@@ -402,6 +403,7 @@ async function api(path, body) {
     const r = await fetch(path, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {});
     let j = {}; try { j = await r.json(); } catch { }
     if (r.ok) return j;
+    if (r.status === 401) { location.href = '/login?next=' + encodeURIComponent(location.pathname); throw new Error('Nicht angemeldet'); }
     const msg = j.error || `HTTP ${r.status}`;
     if (/Claude/.test(msg)) health.claudeErr = msg.slice(0, 160); else if (/Kie/.test(msg)) health.kieErr = msg.slice(0, 160);
     if (attempt < 2 && (r.status === 429 || r.status >= 500) && !/401|402|Guthaben|credit/i.test(msg)) { await sleep(4000 * (attempt + 1)); continue; }

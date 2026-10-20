@@ -12,8 +12,15 @@ const err = (msg, status = 400) => json({ error: msg }, status);
 export default {
   async fetch(req, env) {
     const url = new URL(req.url), p = url.pathname;
-    if (env.APP_PASSWORD && !authorized(req, env)) {
-      return new Response('Login erforderlich', { status: 401, headers: { 'WWW-Authenticate': 'Basic realm="FUXTEC Foto Studio", charset="UTF-8"' } });
+    // Anmeldung: eigene Seite + Sitzungs-Cookie (30 Tage) statt Browser-Passwortfenster
+    if (p === '/api/login' && req.method === 'POST') return login(req, env, url);
+    if (p === '/api/logout') return new Response(null, { status: 303, headers: { location: '/login', 'set-cookie': `${COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax` } });
+    const open = p === '/login' || p.startsWith('/assets/') || p.startsWith('/css/');
+    const ok = !env.APP_PASSWORD || await authorized(req, env);
+    if (p === '/login' && ok && env.APP_PASSWORD) return Response.redirect(url.origin + safeNext(url.searchParams.get('next')), 302);
+    if (!open && !ok) {
+      if (p.startsWith('/api/')) return err('Nicht angemeldet', 401);
+      return Response.redirect(`${url.origin}/login?next=${encodeURIComponent(p + url.search)}`, 302);
     }
     if (!p.startsWith('/api/')) return env.ASSETS.fetch(req);
     try {
@@ -27,10 +34,37 @@ export default {
   }
 };
 
-function authorized(req, env) {
-  const h = req.headers.get('authorization') || '';
-  if (!h.startsWith('Basic ')) return false;
-  try { const [, pass] = atob(h.slice(6)).split(/:(.*)/s); return pass === env.APP_PASSWORD; } catch { return false; }
+/* ---------- Anmeldung ----------
+ * Cookie = Ablaufzeit + HMAC(APP_PASSWORD). Nichts wird gespeichert; ein neues Passwort meldet automatisch alle ab. */
+const COOKIE = 'fs_session', DAYS = 30;
+const enc = new TextEncoder();
+const b64u = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+async function sign(env, msg) {
+  const key = await crypto.subtle.importKey('raw', enc.encode('fotostudio:' + env.APP_PASSWORD), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  return b64u(await crypto.subtle.sign('HMAC', key, enc.encode(msg)));
+}
+function same(a, b) { if (a.length !== b.length) return false; let d = 0; for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i); return d === 0; }
+function safeNext(n) { return n && n.startsWith('/') && !n.startsWith('//') && !n.startsWith('/login') ? n : '/'; }
+async function authorized(req, env) {
+  const m = (req.headers.get('cookie') || '').match(new RegExp(`(?:^|;\\s*)${COOKIE}=([^;]+)`));
+  if (m) {
+    const [exp, sig] = m[1].split('.');
+    if (+exp > Date.now() / 1000 && sig && same(sig, await sign(env, 'v1.' + exp))) return true;
+  }
+  const h = req.headers.get('authorization') || ''; // weiterhin möglich, z. B. für Skripte
+  if (h.startsWith('Basic ')) { try { const [, pass] = atob(h.slice(6)).split(/:(.*)/s); return same(pass || '', env.APP_PASSWORD); } catch { } }
+  return false;
+}
+async function login(req, env, url) {
+  let pass = '', next = '/';
+  try { const f = await req.formData(); pass = String(f.get('password') || ''); next = safeNext(String(f.get('next') || '/')); } catch { }
+  if (!env.APP_PASSWORD) return Response.redirect(url.origin + next, 303);
+  if (!same(pass, env.APP_PASSWORD)) {
+    await new Promise(r => setTimeout(r, 700)); // bremst Durchprobieren
+    return Response.redirect(`${url.origin}/login?e=1&next=${encodeURIComponent(next)}`, 303);
+  }
+  const exp = Math.floor(Date.now() / 1000) + DAYS * 86400;
+  return new Response(null, { status: 303, headers: { location: next, 'set-cookie': `${COOKIE}=${exp}.${await sign(env, 'v1.' + exp)}; Path=/; Max-Age=${DAYS * 86400}; HttpOnly; Secure; SameSite=Lax` } });
 }
 
 /* Diagnose (nach Login): prüft Kie-Guthaben und Claude über Kie */
