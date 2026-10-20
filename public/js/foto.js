@@ -26,7 +26,7 @@ const SHADOW_MODEL_LABEL = { 'nano-banana-2': 'Nano Banana 2', 'nano-banana-2-1'
 /* ---------------- Kosten (Kie-Credits → Euro) ---------------- */
 let batch = null, balance = null, lastBatch = null;
 const eur = v => (Math.round(v * 100) / 100).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });
-const credEur = () => CFG.creditEur || 0.0045;
+const credEur = () => CFG.creditEur || 0.005;
 function calib() { try { return Math.min(3, Math.max(0.4, +localStorage.getItem('foto-cost-cal') || 1)); } catch { return 1; } }
 /* Schätzung pro Bild in Euro: min = ohne Retusche, max = Retusche mit 2. Versuch, avg = Erfahrungswert (~40 % brauchen Retusche) */
 function estimate() {
