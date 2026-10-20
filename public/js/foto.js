@@ -127,6 +127,7 @@ async function init() {
     w.classList.toggle('open', open); b.setAttribute('aria-expanded', String(open));
   }));
   document.addEventListener('click', e => { if (!e.target.closest('.pop')) document.querySelectorAll('.pop-wrap.open').forEach(x => x.classList.remove('open')); });
+  $('.dz').addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#fileIn').click(); } });
   document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('.pop-wrap.open').forEach(x => x.classList.remove('open')); });
   renderStatus();
 }
