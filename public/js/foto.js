@@ -39,8 +39,39 @@ function estimate() {
 }
 function spend(it, credits) { const v = credits * credEur() * calib(); it.credits = (it.credits || 0) + v; if (batch && !batch.closed) batch.spent += v; updateProgress(); }
 async function getCredits() { if (!(CFG.kie)) return null; try { const r = await api('/api/photo/credits'); return typeof r.credits === 'number' ? r.credits : null; } catch { return null; } }
-async function refreshBalance() { const c = await getCredits(); if (c != null) { balance = c; updateProgress(); paintBalance(); } }
-function paintBalance() { const el = $('#balancePill'); if (el && balance != null) { el.textContent = 'Guthaben ca. ' + eur(balance * credEur()); el.className = 'pill ' + (balance * credEur() < 2 ? 'off' : 'on'); } }
+async function refreshBalance() { const c = await getCredits(); if (c != null) { balance = c; health.kieErr = null; updateProgress(); } else if (CFG.kie) health.kieErr = 'Guthaben nicht abrufbar'; paintBalance(); renderStatus(); }
+function paintBalance() {
+  const v = $('#balanceVal'); if (!v) return;
+  if (balance == null) { v.textContent = CFG.kie ? '–' : 'Testmodus'; return; }
+  v.textContent = eur(balance * credEur()).replace(/\s/g, '');
+  $('#balancePill').classList.toggle('low', balance * credEur() < 2);
+  $('#balancePill').title = `${Math.round(balance)} Kie-Credits`;
+  renderStatus();
+}
+/* ---------------- Status (Kopfleiste) ---------------- */
+const health = { kieErr: null, claudeErr: null, diag: null, checked: null };
+function renderStatus() {
+  const live = CFG.kie && CFG.claude, kieOk = CFG.kie && !health.kieErr && balance != null, clOk = CFG.claude && !health.claudeErr && health.diag?.claude?.ok !== false;
+  const dot = $('#statusDot'); dot.className = 'dot ' + (!cfgLoaded ? '' : !live ? 'warn' : kieOk && clOk ? 'ok' : (CFG.kie || CFG.claude) ? 'warn' : 'err');
+  const row = (ok, name, state, desc) => `<div class="svc"><i class="dot ${ok === true ? 'ok' : ok === false ? 'err' : 'warn'}"></i><span>${name}</span><em>${state}</em><small>${desc}</small></div>`;
+  const em = m => EDIT_MODEL_LABEL[m] || SHADOW_MODEL_LABEL[m] || m;
+  const d = health.diag;
+  $('#statusPop').innerHTML = !cfgLoaded ? '<b>Verbindung wird geprüft …</b>' : `<b>${live && kieOk && clOk ? 'Alles verbunden' : !live ? 'Testmodus – KI nicht verbunden' : 'Eingeschränkt'}</b>
+    ${row(CFG.kie ? (health.kieErr ? false : balance != null ? true : null) : false, 'Kie.ai', CFG.kie ? (health.kieErr ? 'Fehler' : balance != null ? 'verbunden' : 'prüfe …') : 'kein Schlüssel',
+      health.kieErr ? esc(health.kieErr) : `Bild-KI: Retusche ${em(opt().editModel)}, Freisteller Recraft + Greenscreen (Nano Banana 2), Schatten ${em(opt().shadowModel)}`)}
+    ${row(CFG.claude ? (health.claudeErr || d?.claude?.ok === false ? false : d?.claude?.ok ? true : true) : false, 'Claude', CFG.claude ? (health.claudeErr || d?.claude?.ok === false ? 'Fehler' : d?.claude?.ok ? `antwortet (${(d.claude.ms / 1000).toFixed(1)} s)` : 'verbunden') : 'fehlt',
+      health.claudeErr ? esc(health.claudeErr) : d?.claude?.ok === false ? esc(d.claude.error || '') : `Analyse, Qualitätskontrolle, Freisteller-Vergleich · ${esc(CFG.model || '')} über Kie`)}
+    ${row(balance != null ? balance * credEur() >= 2 : null, 'Guthaben', balance != null ? eur(balance * credEur()) : '–', balance != null ? `${Math.round(balance)} Kie-Credits${balance * credEur() < 2 ? ' – bald aufladen' : ''}` : 'Wird mit dem Kie-Schlüssel abgefragt')}
+    <button class="btn" id="diagBtn">Verbindung testen</button>
+    <p class="stamp">${health.checked ? 'Zuletzt geprüft ' + health.checked.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) : ''}</p>`;
+  const db = $('#diagBtn'); if (db) db.onclick = runDiag;
+}
+async function runDiag() {
+  const b = $('#diagBtn'); if (b) { b.disabled = true; b.textContent = 'Teste …'; }
+  try { health.diag = await api('/api/diag'); health.claudeErr = health.diag.claude?.ok === false ? (health.diag.claude.error || 'keine Antwort') : null; }
+  catch (e) { health.claudeErr = e.message; }
+  await refreshBalance(); health.checked = new Date(); renderStatus();
+}
 async function closeBatch() {
   if (!batch || batch.closed) return; batch.closed = true;
   const end = await getCredits(), b = batch;
@@ -57,7 +88,7 @@ async function closeBatch() {
 let cfgLoaded = false;
 async function loadConfig() {
   try { CFG = await api('/api/photo/config'); } catch (e) { toast('Konfiguration nicht ladbar: ' + e.message, true); }
-  $('#status').innerHTML = `<span class="pill ${CFG.claude ? 'on' : 'off'}">Claude${CFG.claude ? '' : ' fehlt'}</span><span class="pill ${CFG.kie ? 'on' : 'off'}">Kie${CFG.kie ? '' : ' fehlt'}</span><span class="pill" id="balancePill"></span>`;
+  health.checked = new Date(); renderStatus(); paintBalance();
   refreshBalance();
   if (!CFG.kie || !CFG.claude) toast('Testmodus: ohne Kie/Claude wird nur lokal freigestellt (Weiß-Hintergrund), keine KI-Analyse/Retusche.', true);
   // Standard ist bei jedem Öffnen gleich (keine gespeicherten Abweichungen) – Erweiterte Einstellungen gelten nur für diese Sitzung
@@ -90,6 +121,14 @@ async function init() {
   };
   window.addEventListener('beforeunload', e => { if (items.some(i => i.status !== 'error' && !i.zipped)) { e.preventDefault(); e.returnValue = ''; } });
   initDetail();
+  document.querySelectorAll('.pop-wrap > button').forEach(b => b.addEventListener('click', e => {
+    e.stopPropagation(); const w = b.parentElement, open = !w.classList.contains('open');
+    document.querySelectorAll('.pop-wrap.open').forEach(x => { x.classList.remove('open'); x.firstElementChild.setAttribute('aria-expanded', 'false'); });
+    w.classList.toggle('open', open); b.setAttribute('aria-expanded', String(open));
+  }));
+  document.addEventListener('click', e => { if (!e.target.closest('.pop')) document.querySelectorAll('.pop-wrap.open').forEach(x => x.classList.remove('open')); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') document.querySelectorAll('.pop-wrap.open').forEach(x => x.classList.remove('open')); });
+  renderStatus();
 }
 function saveOpts() {
   pump();
@@ -363,6 +402,7 @@ async function api(path, body) {
     let j = {}; try { j = await r.json(); } catch { }
     if (r.ok) return j;
     const msg = j.error || `HTTP ${r.status}`;
+    if (/Claude/.test(msg)) health.claudeErr = msg.slice(0, 160); else if (/Kie/.test(msg)) health.kieErr = msg.slice(0, 160);
     if (attempt < 2 && (r.status === 429 || r.status >= 500) && !/401|402|Guthaben|credit/i.test(msg)) { await sleep(4000 * (attempt + 1)); continue; }
     throw new Error(msg);
   }
@@ -410,17 +450,17 @@ function paint(it, el = document.getElementById('c-' + it.id)) {
   img.classList.toggle('busy', !['done', 'error', 'queued', 'ready'].includes(it.status));
   el.querySelector('.fc-name').textContent = it.name;
   const on = it.status === 'done' && prefix() ? outNames(it) : null;
-  el.querySelector('.fc-out').textContent = on ? '→ ' + on.png.replace(/\.png$/, '') : '';
+  el.querySelector('.fc-out').textContent = on ? 'Nr. ' + (on.png.match(/_(\d+)\.png$/) || [, ''])[1] + ' · ' + prefix() : '';
+  el.querySelector('.fc-out').title = on ? `${on.png}\n${on.jpg}` : '';
   el.querySelector('.fc-step').textContent = it.status === 'error' ? it.error : STEPS[it.status] + (it.sub ? ' · ' + it.sub : '');
+  // Karte bleibt ruhig: nur Abweichungen vom Normalfall als Tag, alles andere steht in der Detailansicht
   const a = it.analysis, tags = [];
-  if (a && !a.mock) tags.push(`<span class="tag">${esc(a.product)}</span>`);
   if (it.retouch) tags.push(it.retouch.accepted ? '<span class="tag ok">Retuschiert</span>' : '<span class="tag warn">Retusche verworfen</span>');
-  else if (a && !a.mock && !a.retouch_needed) tags.push('<span class="tag">Keine Retusche nötig</span>');
-  if (it.status === 'done') tags.push(it.r.shadowSource === 'ai' && aiShadowFresh(it) ? '<span class="tag ok">KI-Schatten</span>' : it.aiShadowFail ? `<span class="tag warn" title="${esc(it.aiShadowFail)}">Schatten berechnet</span>` : '');
-  if (a?.warnings?.length) tags.push(`<span class="tag warn" title="${esc(a.warnings.join('\n'))}"><svg class="i"><use href="#i-alert"/></svg>${a.warnings.length}</span>`);
+  if (it.status === 'done' && it.aiShadowFail && it.r.shadowSource !== 'ai') tags.push(`<span class="tag warn" title="${esc(it.aiShadowFail)}">Schatten berechnet</span>`);
+  if (a?.warnings?.length) tags.push(`<span class="tag warn" title="${esc(a.warnings.join('\n'))}"><svg class="i"><use href="#i-alert"/></svg>${a.warnings.length} Hinweis${a.warnings.length > 1 ? 'e' : ''}</span>`);
+  if (it.status === 'done' && it.credits > 0) tags.push(`<span class="tag" title="geschätzte Kosten für dieses Bild">ca. ${eur(it.credits)}</span>`);
   el.querySelector('.fc-tags').innerHTML = tags.join('');
   el.querySelector('.fc-retry').hidden = it.status !== 'error';
-  if (it.status === 'done' && it.credits > 0) tags.push(`<span class="tag" title="geschätzte Kosten für dieses Bild">ca. ${eur(it.credits)}</span>`), el.querySelector('.fc-tags').innerHTML = tags.join('');
 }
 const STEP_PCT = { ready: 0, compare: 66, queued: 0, prep: 4, upload: 10, analyze: 18, retouch: 35, qa: 50, cutout: 58, shadow: 72, render: 95, done: 100, error: 100 };
 function updateProgress() {
@@ -431,6 +471,7 @@ function updateProgress() {
   $('#progressTxt').textContent = items.length ? `${done}/${items.length} fertig${err ? ` · ${err} Fehler` : ''}` : '';
   $('#zipBtn').disabled = !done;
   document.body.classList.toggle('has-items', items.length > 0);
+  $('#emptyHint').hidden = items.length > 0;
   const g = $('#gprog'); g.hidden = !items.length; g.classList.toggle('finished', finished && !ready.length); g.classList.toggle('has-err', err > 0); g.classList.toggle('idle', !total);
   $('#gprogBar').style.width = (!total ? 0 : finished ? 100 : Math.max(2, pct)).toFixed(1) + '%';
   $('#gprogPct').textContent = total ? Math.round(finished ? 100 : pct) + ' %' : '';
@@ -438,6 +479,7 @@ function updateProgress() {
     ? `Fertig: ${done} von ${total} Bildern${err ? ` · ${err} mit Fehler (auf der Karte ↻ erneut versuchen)` : ''}`
     : `${done} von ${total} Bildern fertig · ${running} in Arbeit${err ? ` · ${err} Fehler` : ''}`;
   $('#gprogZip').hidden = !finished || !done;
+  $('#zipBtn').hidden = !$('#gprogZip').hidden || !items.length;
   // Start + Kostenschätzung
   const e = estimate(), live = CFG.kie && CFG.claude, sb = $('#startBtn');
   sb.hidden = !ready.length; sb.disabled = !cfgLoaded;
@@ -472,7 +514,7 @@ function outNames(it) {
 }
 function updateNames() {
   const p = prefix();
-  $('#namePrev').innerHTML = p ? `→ <b>${esc(p)}_freigestellt_01.png</b> · <b>${esc(p)}_whitepack_01.jpg</b> …` : 'Ausgabe unter den Originalnamen';
+  $('#namePrev').innerHTML = p ? `<b>${esc(p)}_freigestellt_01.png</b><br><b>${esc(p)}_whitepack_01.jpg</b>` : 'Leer lassen = Originalnamen';
   for (const it of items) paint(it);
 }
 

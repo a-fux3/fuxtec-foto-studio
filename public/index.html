@@ -4,9 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
-<title>FUXTEC Foto Studio</title>
+<title>FUXTEC Fotostudio</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 82 90'%3E%3Crect width='82' height='90' rx='14' fill='%23FE8A00'/%3E%3C/svg%3E">
 <link rel="preload" href="/assets/fonts/ui/geist-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/assets/fonts/roboto-latin-900-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/css/app.css">
 <link rel="stylesheet" href="/css/foto.css">
 </head>
@@ -20,6 +21,7 @@
     <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 20V9M7 14l5-5 5 5M4 4h16"/></symbol>
     <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
   <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
   <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 5v14l12-7z" fill="currentColor" stroke="none"/></symbol>
   <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
@@ -28,84 +30,116 @@
   <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4 2.5 20h19z"/><path d="M12 10v4M12 17v.5"/></symbol>
 </defs></svg>
 
-<header class="top">
-  <div class="brand"><svg id="brandLogo" viewBox="0 0 81.39 89.46" aria-hidden="true"></svg><span>Foto Studio</span></div>
-  <div class="status" id="status"></div>
+<header class="hdr">
+  <a class="home" href="#" title="Startseite (kommt bald)" aria-label="Startseite"><img src="/assets/home.png" alt=""></a>
+  <div class="logo"><svg id="brandLogo" viewBox="0 0 81.39 89.46" aria-hidden="true"></svg><span>Fotostudio</span></div>
+  <div class="hdr-right">
+    <div class="pop-wrap" id="statusWrap">
+      <button class="hpill" id="statusPill" aria-describedby="statusPop" aria-expanded="false"><span>Status</span><i class="dot" id="statusDot"></i></button>
+      <div class="pop pop-r" id="statusPop" role="tooltip"></div>
+    </div>
+    <div class="hpill" id="balancePill"><span>Guthaben:</span><b id="balanceVal">–</b></div>
+  </div>
 </header>
 
-<main class="foto">
-  <section class="fbar card">
-    <div class="fbar-main">
-      <div class="fbar-title">
-        <h1>Produktfotos im Bulk</h1>
-        <p>Fotos reinziehen, Dateiname eintragen, auf Start drücken – der Rest läuft automatisch: KI-Analyse, Retusche bei Bedarf, Freistellen mit zwei Verfahren (das bessere gewinnt), KI-Schatten. Ausgabe 1200 × 1200, Produkt im 900er-Rahmen, als JPG (weiß) und PNG (transparent).</p>
-      </div>
-      <div class="fbar-actions">
-        <span id="progressTxt" class="prog-txt"></span>
-        <button class="btn" id="clearBtn" title="Liste leeren"><svg class="i"><use href="#i-x"/></svg>Leeren</button>
-        <button class="btn primary" id="zipBtn" disabled><svg class="i"><use href="#i-archive"/></svg>Alle als ZIP</button>
-      </div>
+<main class="layout">
+  <aside class="panel tool" aria-label="Galerieconverter">
+    <div class="ttl"><h1>Galerieconverter</h1>
+      <div class="pop-wrap"><button class="info" aria-label="Was macht der Galerieconverter?" aria-expanded="false">i</button>
+        <div class="pop" role="tooltip">
+          <b>Aus Lieferantenfotos werden fertige Shopbilder.</b>
+          <ol>
+            <li>Fotos rechts ablegen (JPG, PNG, WebP, TIFF – beliebig viele)</li>
+            <li>Artikelnummer als Dateinamen eintragen</li>
+            <li>Auf Start drücken</li>
+          </ol>
+          <p>Pro Foto prüft die KI Belichtung, Schärfe und Makel und retuschiert nur, wenn es nötig ist – auffällige Falten, Schmutz, Staub. Das Produkt wird mit zwei Verfahren freigestellt, die bessere Version gewinnt. Dazu kommt ein weicher KI-Schatten.</p>
+          <p>Ergebnis: 1200 × 1200 px, Produkt im 900er-Rahmen, als JPG auf Weiß und PNG transparent. Ein Klick auf ein fertiges Bild öffnet alle Feinheiten zum Nachbessern.</p>
+        </div></div>
     </div>
-    <div class="fname">
-      <label class="fname-in"><span class="flabel">Dateiname <small>Artikelnummer – leer lassen = Originalnamen</small></span>
-        <input id="namePrefix" type="text" placeholder="z. B. FX-RM4646" autocomplete="off" spellcheck="false" maxlength="80"></label>
+
+    <div class="blk">
+      <div class="lbl"><label for="namePrefix">Dateiname</label>
+        <div class="pop-wrap"><button class="info" aria-label="Wie werden die Dateien benannt?" aria-expanded="false">i</button>
+          <div class="pop" role="tooltip">
+            <b>So heißen die fertigen Dateien</b>
+            <p>Trag die Artikelnummer ein, zum Beispiel <code>FX-RM4646</code>. Jedes Foto bekommt eine fortlaufende Nummer in der Reihenfolge, in der du es abgelegt hast:</p>
+            <p><code>FX-RM4646_freigestellt_01.png</code> – transparent<br><code>FX-RM4646_whitepack_01.jpg</code> – auf Weiß<br><code>FX-RM4646_freigestellt_02.png</code> …</p>
+            <p>Fotos mit Fehler werden übersprungen, es entstehen keine Lücken. Das ZIP heißt <code>FX-RM4646_Datum.zip</code> und enthält die Ordner JPG und PNG plus ein Protokoll.</p>
+            <p>Feld leer lassen: Die Dateien behalten ihre Originalnamen. Für die nächste Artikelnummer vorher „Liste leeren“.</p>
+          </div></div>
+      </div>
+      <input id="namePrefix" type="text" placeholder="z. B. FX-RM4646" autocomplete="off" spellcheck="false" maxlength="80">
       <p class="fname-prev" id="namePrev"></p>
     </div>
-    <details class="fbar-adv">
-    <summary><svg class="i chev"><use href="#i-chev"/></svg>Erweiterte Einstellungen <small>optional – der Standard passt für alle Bilder</small></summary>
-    <div class="fbar-opts">
-      <div class="field"><span class="flabel">KI-Retusche</span>
-        <div class="seg" role="radiogroup" aria-label="KI-Retusche">
-          <label><input type="radio" name="retouch" value="auto" checked><span>KI entscheidet</span></label>
-          <label><input type="radio" name="retouch" value="off"><span>Aus</span></label>
-        </div></div>
-      <div class="field"><span class="flabel">Bildmodell</span>
-        <div class="seg" role="radiogroup" aria-label="Bildmodell">
-          <label><input type="radio" name="editModel" value="gpt-image-2-5-flare-image-to-image" checked><span>GPT 2.5</span></label>
-          <label><input type="radio" name="editModel" value="nano-banana-2"><span>Nano Banana 2</span></label>
-          <label><input type="radio" name="editModel" value="nano-banana-pro"><span>NB Pro</span></label>
-        </div></div>
-      <div class="field"><span class="flabel">Parallel</span>
-        <div class="seg" role="radiogroup" aria-label="Parallel">
-          <label><input type="radio" name="conc" value="1"><span>1</span></label>
-          <label><input type="radio" name="conc" value="2"><span>2</span></label>
-          <label><input type="radio" name="conc" value="3" checked><span>3</span></label>
-          <label><input type="radio" name="conc" value="4"><span>4</span></label>
-        </div></div>
-      <div class="field"><span class="flabel">Schatten</span>
-        <div class="seg" role="radiogroup" aria-label="Schatten">
-          <label><input type="radio" name="shadowSrc" value="ai" checked><span>KI-Schatten</span></label>
-          <label><input type="radio" name="shadowSrc" value="calc"><span>Berechnet</span></label>
-        </div></div>
-      <div class="field" id="shadowModelField"><span class="flabel">Schatten-Modell</span>
-        <div class="seg" role="radiogroup" aria-label="Schatten-Modell">
-          <label><input type="radio" name="shadowModel" value="nano-banana-2"><span>NB 2</span></label>
-          <label><input type="radio" name="shadowModel" value="nano-banana-2-1"><span>NB 2.1</span></label>
-          <label><input type="radio" name="shadowModel" value="nano-banana-pro"><span>NB Pro</span></label>
-          <label><input type="radio" name="shadowModel" value="gpt-image-2-5-flare-image-to-image" checked><span>GPT 2.5</span></label>
-        </div></div>
-      <label class="field rng"><span class="flabel">Schatten-Stärke <output id="strengthOut">100 %</output></span><input type="range" id="strength" min="0" max="200" step="5" value="100"></label>
-      <label class="tgl"><input type="checkbox" id="qa" checked><span class="sw"></span><span><b>Qualitätskontrolle</b><small>Claude vergleicht Retusche mit Original, verwirft Abweichungen.</small></span></label>
+
+    <section class="blk run" id="gprog" hidden>
+      <div class="run-head"><b id="gprogTxt"></b><span id="gprogPct" class="gprog-pct"></span></div>
+      <div class="gbar"><i id="gprogBar"></i></div>
+      <p class="gprog-cost" id="gprogCost"></p>
+      <button class="btn primary big wide" id="startBtn" hidden><svg class="i"><use href="#i-play"/></svg>Start</button>
+      <button class="btn primary big wide" id="gprogZip" hidden><svg class="i"><use href="#i-archive"/></svg>Alle als ZIP herunterladen</button>
+    </section>
+    <p class="blk empty-hint" id="emptyHint">Noch keine Fotos. Leg sie rechts ab – danach geht es hier mit Start weiter.</p>
+
+    <div class="blk acts">
+      <button class="btn ghost" id="zipBtn" disabled><svg class="i"><use href="#i-archive"/></svg>ZIP</button>
+      <button class="btn ghost" id="clearBtn"><svg class="i"><use href="#i-x"/></svg>Liste leeren</button>
     </div>
-    <p class="hint">Gilt nur bis zum Neuladen der Seite. Danach ist wieder der Standard aktiv.</p>
+
+    <details class="blk adv">
+      <summary><svg class="i chev"><use href="#i-chev"/></svg>Erweiterte Einstellungen</summary>
+      <p class="hint">Optional. Der Standard passt für alle Bilder, Änderungen gelten bis zum Neuladen.</p>
+      <div class="fbar-opts">
+        <div class="field"><span class="flabel">KI-Retusche</span>
+          <div class="seg" role="radiogroup" aria-label="KI-Retusche">
+            <label><input type="radio" name="retouch" value="auto" checked><span>KI entscheidet</span></label>
+            <label><input type="radio" name="retouch" value="off"><span>Aus</span></label>
+          </div></div>
+        <div class="field"><span class="flabel">Bildmodell Retusche</span>
+          <div class="seg" role="radiogroup" aria-label="Bildmodell">
+            <label><input type="radio" name="editModel" value="gpt-image-2-5-flare-image-to-image" checked><span>GPT 2.5</span></label>
+            <label><input type="radio" name="editModel" value="nano-banana-2"><span>NB 2</span></label>
+            <label><input type="radio" name="editModel" value="nano-banana-pro"><span>NB Pro</span></label>
+          </div></div>
+        <div class="field"><span class="flabel">Schatten</span>
+          <div class="seg" role="radiogroup" aria-label="Schatten">
+            <label><input type="radio" name="shadowSrc" value="ai" checked><span>KI-Schatten</span></label>
+            <label><input type="radio" name="shadowSrc" value="calc"><span>Berechnet</span></label>
+          </div></div>
+        <div class="field" id="shadowModelField"><span class="flabel">Schatten-Modell</span>
+          <div class="seg" role="radiogroup" aria-label="Schatten-Modell">
+            <label><input type="radio" name="shadowModel" value="gpt-image-2-5-flare-image-to-image" checked><span>GPT 2.5</span></label>
+            <label><input type="radio" name="shadowModel" value="nano-banana-2"><span>NB 2</span></label>
+            <label><input type="radio" name="shadowModel" value="nano-banana-2-1"><span>NB 2.1</span></label>
+            <label><input type="radio" name="shadowModel" value="nano-banana-pro"><span>Pro</span></label>
+          </div></div>
+        <label class="field rng"><span class="flabel">Schatten-Stärke <output id="strengthOut">100 %</output></span><input type="range" id="strength" min="0" max="200" step="5" value="100"></label>
+        <div class="field"><span class="flabel">Gleichzeitig</span>
+          <div class="seg" role="radiogroup" aria-label="Gleichzeitig bearbeiten">
+            <label><input type="radio" name="conc" value="1"><span>1</span></label>
+            <label><input type="radio" name="conc" value="2"><span>2</span></label>
+            <label><input type="radio" name="conc" value="3" checked><span>3</span></label>
+            <label><input type="radio" name="conc" value="4"><span>4</span></label>
+          </div></div>
+        <label class="tgl"><input type="checkbox" id="qa" checked><span class="sw"></span><span><b>Qualitätskontrolle</b><small>Claude vergleicht jede Retusche mit dem Original und verwirft Abweichungen am Produkt.</small></span></label>
+      </div>
     </details>
-  </section>
+  </aside>
 
-  <section class="gprog card" id="gprog" hidden>
-    <div class="gprog-head"><b id="gprogTxt"></b><span id="gprogPct" class="gprog-pct"></span>
-      <button class="btn primary big" id="startBtn" hidden><svg class="i"><use href="#i-play"/></svg>Start</button>
-      <button class="btn primary" id="gprogZip" hidden><svg class="i"><use href="#i-archive"/></svg>Alle als ZIP herunterladen</button></div>
-    <div class="gbar"><i id="gprogBar"></i></div>
-    <p class="gprog-cost" id="gprogCost"></p>
-  </section>
-
-  <label class="fdrop" id="drop">
+  <section class="panel studio" id="drop" aria-label="Fotos">
     <input type="file" id="fileIn" accept="image/jpeg,image/png,image/webp,image/tiff,.tif,.tiff" multiple hidden>
-    <svg class="i"><use href="#i-upload"/></svg>
-    <span><b>Fotos hierher ziehen</b> oder klicken · JPG, PNG, WebP, TIFF · beliebig viele</span>
-  </label>
-
-  <section id="grid" class="fgrid"></section>
+    <div class="studio-bar">
+      <span id="progressTxt" class="prog-txt"></span>
+      <label class="btn" for="fileIn"><svg class="i"><use href="#i-plus"/></svg>Fotos hinzufügen</label>
+    </div>
+    <label class="sweep" for="fileIn">
+      <span class="sweep-floor"></span>
+      <span class="sweep-txt"><b>Fotos hier ablegen</b><small>oder klicken zum Auswählen · JPG, PNG, WebP, TIFF</small></span>
+    </label>
+    <div id="grid" class="fgrid"></div>
+    <div class="drop-veil" aria-hidden="true"><span>Loslassen zum Hinzufügen</span></div>
+  </section>
 </main>
 
 <dialog id="detail" class="fdetail">
