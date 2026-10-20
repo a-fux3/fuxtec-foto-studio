@@ -28,7 +28,7 @@ body {
   animation: in .4s var(--ease) both;
 }
 @keyframes in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
-.brand { display: flex; align-items: center; gap: 12px; }
+.brand { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
 .brand svg { width: 34px; height: 37px; fill: var(--fux); flex: none; }
 .brand h1 { margin: 0; font: 900 21px/1 "UI Roboto", "Geist", sans-serif; text-transform: uppercase; letter-spacing: .01em; }
 .lead { margin: 14px 0 22px; color: var(--mute); font-size: 13.5px; }
@@ -65,7 +65,6 @@ button[type=submit][disabled] { opacity: .7; cursor: progress; }
 <body>
 <main class="card">
   <div class="brand"><svg viewBox="0 0 81.39 89.46" aria-hidden="true"><path fill-rule="evenodd" d="M 49.769531 50.605469 C 49.234375 52.792969 48.679688 54.953125 48.171875 57.167969 C 50.355469 56.644531 52.519531 56.097656 54.707031 55.570312 C 55.257812 53.398438 55.777344 51.179688 56.332031 49.007812 L 56.277344 49.007812 C 54.117188 49.546875 51.949219 50.085938 49.769531 50.605469 M 25.878906 55.570312 C 28.074219 56.089844 30.234375 56.652344 32.441406 57.167969 C 31.910156 54.984375 31.363281 52.820312 30.839844 50.632812 C 28.679688 50.0625 26.464844 49.546875 24.277344 49.007812 C 24.789062 51.210938 25.355469 53.367188 25.878906 55.570312 M 30.691406 24.667969 C 36.257812 22.429688 46.496094 21.855469 52.074219 24.578125 C 57.386719 12.21875 66.414062 3.570312 80.789062 0.273438 C 77.09375 7.761719 73.722656 15.785156 71.648438 24.996094 C 70.640625 29.480469 69.753906 34.789062 69.996094 40.28125 C 70.230469 45.675781 71.195312 50.371094 72.921875 54.269531 C 57.421875 60.945312 49.585938 75.285156 40.984375 88.867188 C 37.316406 81.648438 32.996094 74.964844 27.949219 69.113281 C 22.894531 63.269531 17.09375 58.074219 9.875 54.414062 C 11.1875 50 12.332031 45.1875 12.417969 39.632812 C 12.59375 28.230469 9.574219 19.34375 6.0625 11.421875 C 5.179688 9.433594 4.160156 7.53125 3.164062 5.652344 C 2.144531 3.746094 1.003906 1.832031 0 0.0664062 C 16.027344 2.46875 24.515625 12.414062 30.691406 24.667969 "/></svg><h1>Fotostudio</h1></div>
-  <p class="lead">Melde dich mit dem Team-Passwort an. Danach bleibst du 30 Tage angemeldet.</p>
   <form method="post" action="/api/login" id="f">
     <input type="hidden" name="next" id="next" value="/">
     <label for="pw">Passwort</label>
@@ -76,7 +75,7 @@ button[type=submit][disabled] { opacity: .7; cursor: progress; }
     <p class="error" id="err" role="alert">Passwort stimmt nicht. Bitte noch einmal versuchen.</p>
     <button type="submit" id="go">Anmelden</button>
   </form>
-  <p class="foot">Kein Passwort? Wende dich an das Content-Team.</p>
+  <p class="foot">Nach der Anmeldung bleibst du 15 Tage angemeldet.</p>
 </main>
 <script>
   const q = new URLSearchParams(location.search);

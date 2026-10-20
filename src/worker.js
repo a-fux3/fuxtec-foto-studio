@@ -12,7 +12,7 @@ const err = (msg, status = 400) => json({ error: msg }, status);
 export default {
   async fetch(req, env) {
     const url = new URL(req.url), p = url.pathname;
-    // Anmeldung: eigene Seite + Sitzungs-Cookie (30 Tage) statt Browser-Passwortfenster
+    // Anmeldung: eigene Seite + Sitzungs-Cookie (15 Tage) statt Browser-Passwortfenster
     if (p === '/api/login' && req.method === 'POST') return login(req, env, url);
     if (p === '/api/logout') return new Response(null, { status: 303, headers: { location: '/login', 'set-cookie': `${COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax` } });
     const open = p === '/login' || p.startsWith('/assets/') || p.startsWith('/css/');
@@ -36,7 +36,7 @@ export default {
 
 /* ---------- Anmeldung ----------
  * Cookie = Ablaufzeit + HMAC(APP_PASSWORD). Nichts wird gespeichert; ein neues Passwort meldet automatisch alle ab. */
-const COOKIE = 'fs_session', DAYS = 30;
+const COOKIE = 'fs_session', DAYS = 15;
 const enc = new TextEncoder();
 const b64u = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 async function sign(env, msg) {

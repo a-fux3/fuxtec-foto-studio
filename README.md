@@ -18,7 +18,7 @@ Bilder werden nicht bei Cloudflare gespeichert: Sie liegen 24 h im Kie-Speicher 
    - Typ **Secret**, Name `KIE_API_KEY`, Wert = derselbe Kie-Key wie im Banner Studio
    - Typ **Secret**, Name `APP_PASSWORD`, Wert = Passwort für den Zugang (frei wählbar)
    → *Deploy*.
-3. **Öffnen:** Die App zeigt eine eigene Anmeldeseite (Team-Passwort = `APP_PASSWORD`), danach bleibt man 30 Tage angemeldet. Abmelden: Status oben rechts → „Abmelden“. Ein neues Passwort meldet automatisch alle ab.
+3. **Öffnen:** Die App zeigt eine eigene Anmeldeseite (Team-Passwort = `APP_PASSWORD`), danach bleibt man 15 Tage angemeldet. Abmelden: Status oben rechts → „Abmelden“. Ein neues Passwort meldet automatisch alle ab.
     Adresse steht unter *Settings → Domains & Routes*, z. B. `https://fuxtec-foto-studio.<konto>.workers.dev`. Im Chrome öffnen → Passwort eingeben (Benutzername egal).
 4. **Test:** `…/api/diag` aufrufen. Dort sollten `credits` (Kie-Guthaben) und `claude.ok: true` stehen.
 
