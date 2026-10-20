@@ -2,6 +2,8 @@
 
 Bulk-Bearbeitung von Lieferanten-Produktfotos statt Agentur. Läuft als eigener Cloudflare Worker, Bedienung im Chrome.
 
+**Ablauf:** Fotos reinziehen → Dateiname (Artikelnummer) eintragen → **Start**. Vor dem Start zeigt das Tool die geschätzten Kosten in Euro.
+
 **Pro Bild:** Upload in den Kie-Speicher → KI-Analyse (Claude) → Retusche nur bei Bedarf (Nano Banana 2 / Pro) → Qualitätskontrolle Original vs. Retusche → Freistellen (recraft) → im Browser: Farbkorrektur, Produkt im **900 × 900**-Rahmen auf **1200 × 1200**, Schärfen, **KI-Schatten** → **JPG weiß + PNG transparent**, alles als ZIP.
 
 Bilder werden nicht bei Cloudflare gespeichert: Sie liegen 24 h im Kie-Speicher und ansonsten nur im Browser-Tab.
@@ -42,6 +44,12 @@ Zeichnet die KI das Produkt zu stark neu oder färbt den Hintergrund, wird autom
 
 ### Standard ohne Einstellen
 Bei jedem Öffnen gilt derselbe Standard: Retusche nach KI-Entscheidung mit GPT Image 2.5, Qualitätskontrolle an, KI-Schatten mit GPT Image 2.5, 3 Bilder parallel. „Erweiterte Einstellungen“ sind eingeklappt und gelten nur bis zum Neuladen. Oben zeigt eine Leiste den Gesamtfortschritt aller hochgeladenen Bilder, am Ende mit „Alle als ZIP herunterladen“.
+
+### Freisteller-Vergleich
+Jedes Bild wird mit zwei Verfahren freigestellt: **A** Recraft (+ Kanten-Rettung) und **B** KI-Greenscreen (Nano Banana 2 setzt das Produkt auf Grün bzw. bei grünen Produkten auf Magenta, die Maske wird im Browser gestanzt, Farben kommen weiter aus dem Originalfoto). Claude vergleicht beide auf dunklem Grund inkl. Vergrößerung der Unterschiede und wählt die bessere Version. In der Detailansicht unter „Freistellung“ lässt sich umschalten.
+
+### Kosten in Euro
+Vor dem Start: geschätzte Kosten für alle bereitliegenden Bilder (Spanne pro Bild, je nachdem ob retuschiert wird) und Warnung, wenn das Kie-Guthaben nicht reicht. Während des Laufs: bisher verbraucht. Danach: echte Kosten laut Kie-Guthaben (vorher/nachher) und Kosten pro Bild. Die Schätzung gleicht sich nach jedem Lauf automatisch an die echten Kosten an. Umrechnung: 1 Kie-Credit ≈ 0,0045 € (`CREDIT_EUR`). Achtung: Nutzt gleichzeitig ein anderes Tool denselben Kie-Key (z. B. Banner Studio), fließt das in die gemessenen Kosten ein.
 
 ### Dateinamen
 Feld „Dateiname“ oben: Artikelnummer eintragen (z. B. `FX-RM4646`) → `FX-RM4646_freigestellt_01.png` und `FX-RM4646_whitepack_01.jpg`, nummeriert in Upload-Reihenfolge. ZIP heißt dann `FX-RM4646_<Datum>.zip`. Leer = Originalnamen.

@@ -7,7 +7,7 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const WORK_MAX = 3200;          // Arbeitsauflösung: hoch genug für feine Details beim Freistellen, unter den Kie-Limits (4096 px, 16 MP, 5 MB)
 const UPLOAD_MAX_BYTES = 4.6e6;  // Freisteller-Modell nimmt max. 5 MB
-const STEPS = { queued: 'Wartet', prep: 'Vorbereiten', upload: 'Hochladen', analyze: 'KI-Analyse', retouch: 'Retusche', qa: 'Qualitätskontrolle', cutout: 'Freistellen', shadow: 'KI-Schatten', render: 'Schatten & Export', done: 'Fertig', error: 'Fehler' };
+const STEPS = { ready: 'Bereit – auf Start drücken', queued: 'Wartet', prep: 'Vorbereiten', upload: 'Hochladen', analyze: 'KI-Analyse', retouch: 'Retusche', qa: 'Qualitätskontrolle', cutout: 'Freistellen', compare: 'Freisteller-Vergleich', shadow: 'KI-Schatten', render: 'Schatten & Export', done: 'Fertig', error: 'Fehler' };
 
 let CFG = { kie: false, claude: false };
 const items = []; let running = 0, current = null;
@@ -23,11 +23,42 @@ const opt = () => ({
 const EDIT_MODEL_LABEL = { 'gpt-image-2-5-flare-image-to-image': 'GPT Image 2.5', 'nano-banana-2': 'Nano Banana 2', 'nano-banana-pro': 'NB Pro' };
 const SHADOW_MODEL_LABEL = { 'nano-banana-2': 'Nano Banana 2', 'nano-banana-2-1': 'Nano Banana 2.1', 'nano-banana-pro': 'NB Pro', 'gpt-image-2-5-flare-image-to-image': 'GPT Image 2.5' };
 
+/* ---------------- Kosten (Kie-Credits → Euro) ---------------- */
+let batch = null, balance = null, lastBatch = null;
+const eur = v => (Math.round(v * 100) / 100).toLocaleString('de-DE', { style: 'currency', currency: 'EUR' });
+const credEur = () => CFG.creditEur || 0.0045;
+function calib() { try { return Math.min(3, Math.max(0.4, +localStorage.getItem('foto-cost-cal') || 1)); } catch { return 1; } }
+/* Schätzung pro Bild in Euro: min = ohne Retusche, max = Retusche mit 2. Versuch, avg = Erfahrungswert (~40 % brauchen Retusche) */
+function estimate() {
+  const c = CFG.costs || {}, o = opt(), live = CFG.kie && CFG.claude;
+  if (!live) return { min: 0, max: 0, avg: 0 };
+  const base = (c.analyze || 5) + (c.recraft || 1) + (c.keyout || 12) + (c.compare || 5) + (c.shadow?.[o.shadowModel] || 8);
+  const ret = o.retouch === 'auto' ? (c.retouch?.[o.editModel] || 12) + (o.qa ? (c.qa || 5) : 0) : 0;
+  const k = credEur() * calib();
+  return { min: base * k, max: (base + ret * 2) * k, avg: (base + ret * 0.5) * k };
+}
+function spend(it, credits) { const v = credits * credEur() * calib(); it.credits = (it.credits || 0) + v; if (batch && !batch.closed) batch.spent += v; updateProgress(); }
+async function getCredits() { if (!(CFG.kie)) return null; try { const r = await api('/api/photo/credits'); return typeof r.credits === 'number' ? r.credits : null; } catch { return null; } }
+async function refreshBalance() { const c = await getCredits(); if (c != null) { balance = c; updateProgress(); paintBalance(); } }
+function paintBalance() { const el = $('#balancePill'); if (el && balance != null) { el.textContent = 'Guthaben ca. ' + eur(balance * credEur()); el.className = 'pill ' + (balance * credEur() < 2 ? 'off' : 'on'); } }
+async function closeBatch() {
+  if (!batch || batch.closed) return; batch.closed = true;
+  const end = await getCredits(), b = batch;
+  if (end != null) { balance = end; paintBalance(); }
+  if (b.startCredits != null && end != null && b.startCredits >= end) {
+    b.actual = (b.startCredits - end) * credEur();
+    // Schätzung nachkalibrieren (gedämpft), damit die nächste Vorhersage näher dran ist
+    if (b.spent > 0.05 && b.actual > 0) { const f = Math.min(3, Math.max(0.4, b.actual / (b.spent / calib()))); try { localStorage.setItem('foto-cost-cal', String(calib() * 0.5 + f * 0.5)); } catch { } }
+  }
+  lastBatch = b; updateProgress();
+}
+
 /* ---------------- Start ---------------- */
 let cfgLoaded = false;
 async function loadConfig() {
   try { CFG = await api('/api/photo/config'); } catch (e) { toast('Konfiguration nicht ladbar: ' + e.message, true); }
-  $('#status').innerHTML = `<span class="pill ${CFG.claude ? 'on' : 'off'}">Claude${CFG.claude ? '' : ' fehlt'}</span><span class="pill ${CFG.kie ? 'on' : 'off'}">Kie${CFG.kie ? '' : ' fehlt'}</span>`;
+  $('#status').innerHTML = `<span class="pill ${CFG.claude ? 'on' : 'off'}">Claude${CFG.claude ? '' : ' fehlt'}</span><span class="pill ${CFG.kie ? 'on' : 'off'}">Kie${CFG.kie ? '' : ' fehlt'}</span><span class="pill" id="balancePill"></span>`;
+  refreshBalance();
   if (!CFG.kie || !CFG.claude) toast('Testmodus: ohne Kie/Claude wird nur lokal freigestellt (Weiß-Hintergrund), keine KI-Analyse/Retusche.', true);
   // Standard ist bei jedem Öffnen gleich (keine gespeicherten Abweichungen) – Erweiterte Einstellungen gelten nur für diese Sitzung
   for (const [name, v] of [['editModel', CFG.editModel], ['shadowModel', CFG.shadowModel]]) { const r = v && document.querySelector(`input[name=${name}][value="${v}"]`); if (r) r.checked = true; }
@@ -52,10 +83,10 @@ async function init() {
   ['dragleave', 'drop'].forEach(e => document.addEventListener(e, ev => { if (e === 'dragleave' && ev.relatedTarget) return; drop.classList.remove('over'); }));
   document.addEventListener('drop', ev => { if (!ev.dataTransfer?.files?.length) return; ev.preventDefault(); addFiles(ev.dataTransfer.files); });
 
-  $('#zipBtn').onclick = zipAll; $('#gprogZip').onclick = zipAll;
+  $('#zipBtn').onclick = zipAll; $('#gprogZip').onclick = zipAll; $('#startBtn').onclick = startBatch;
   $('#clearBtn').onclick = () => {
     if (running && !confirm('Es laufen noch Bilder. Trotzdem alles leeren?')) return;
-    for (const it of items) it.cancelled = true; items.length = 0; $('#grid').innerHTML = ''; updateProgress();
+    for (const it of items) it.cancelled = true; items.length = 0; $('#grid').innerHTML = ''; batch = null; lastBatch = null; updateProgress();
   };
   window.addEventListener('beforeunload', e => { if (items.some(i => i.status !== 'error' && !i.zipped)) { e.preventDefault(); e.returnValue = ''; } });
   initDetail();
@@ -71,11 +102,29 @@ function addFiles(list) {
   if (skipped) toast(`${skipped} Datei(en) übersprungen (nur JPG, PNG, WebP, TIFF – HEIC bitte vorher umwandeln).`, true);
   for (const f of files) {
     const base = f.name.replace(/\.[^.]+$/, '').replace(/[^\w\-. ]+/g, '_').trim() || 'bild';
-    const it = { id: Math.random().toString(36).slice(2, 10), file: f, name: f.name, base, status: 'queued', log: [],
+    const it = { id: Math.random().toString(36).slice(2, 10), file: f, name: f.name, base, status: 'ready', log: [], credits: 0,
       r: { toneOn: true, shadowMode: 'floor', light: 'center', strength: opt().strength, useRetouch: true, shadowSource: opt().shadowSrc } };
     items.push(it); $('#grid').append(card(it));
+    quickThumb(it);
   }
-  updateProgress(); pump();
+  updateProgress(); refreshBalance();
+}
+/* Vorschaubild sofort nach dem Reinziehen (TIFF erst beim Start, das Dekodieren ist schwer) */
+async function quickThumb(it) {
+  try {
+    if (await fx.isTiff(it.file)) { it.thumbNote = 'TIFF'; paint(it); return; }
+    const bm = await createImageBitmap(it.file, { imageOrientation: 'from-image', resizeWidth: 480, resizeQuality: 'medium' });
+    const c = fx.canvas(bm.width, bm.height); c.getContext('2d').drawImage(bm, 0, 0); bm.close?.();
+    if (!it.thumb) { it.thumb = c.toDataURL('image/jpeg', 0.8); paint(it); }
+  } catch { }
+}
+/* Start: alle bereitliegenden Bilder in die Warteschlange */
+async function startBatch() {
+  const ready = items.filter(i => i.status === 'ready'); if (!ready.length) return;
+  if (!batch || batch.closed) batch = { startCredits: await getCredits(), est: 0, spent: 0, items: [], closed: false };
+  batch.est += ready.length * estimate().avg;
+  for (const it of ready) { it.status = 'queued'; batch.items.push(it); paint(it); }
+  pump();
 }
 function pump() {
   if (!cfgLoaded) { updateProgress(); return; }
@@ -85,6 +134,7 @@ function pump() {
     running++; it.status = 'prep';
     process(it).catch(e => fail(it, e)).finally(() => { running--; updateProgress(); pump(); });
   }
+  if (!running && batch && !batch.closed && !items.some(i => i.status === 'queued')) closeBatch();
   updateProgress();
 }
 function fail(it, e) {
@@ -106,16 +156,20 @@ async function cached(key, make) {
 const blobCanvas = async (blob, max = 0) => { const bm = await fx.loadBitmap(blob); const c = max ? fx.fitMax(bm, max) : null; if (c && c !== bm) return c; const o = fx.canvas(bm.width, bm.height); o.getContext('2d').drawImage(bm, 0, 0); return o; };
 const getWork = it => cached(it.id + ':work', () => blobCanvas(it.src || it.file, WORK_MAX));
 const getRet = it => it.retouch?.blob ? cached(it.id + ':ret:' + it.retouch.url, () => blobCanvas(it.retouch.blob)) : null;
-const getCut = it => cached(it.id + ':cut:' + it.cutKey, async () => {
-  const cut = await blobCanvas(it.cutBlobs[it.cutKey], 1800);
+/* Freisteller-Variante: a = Recraft (+ Kanten-Rettung), b = KI-Greenscreen (schon fertig verarbeitet) */
+const cutPick = it => it.cutVariants?.[it.cutKey]?.pick || 'a';
+const cutId = it => it.cutKey + ':' + cutPick(it);
+const srcFor = (it, key) => key === 'ret' ? getRet(it) : getWork(it);
+async function refineA(it, blob, key) {
+  const cut = await blobCanvas(blob, 1800);
   if (it.alphaIn) return cut;
   // feine Details (Sägekette, Gitter, Speichen) aus dem Originalfoto zurückholen, Kanten entfärben
-  const src = it.cutKey === 'ret' ? await getRet(it) : await getWork(it);
-  if (!src) return cut;
+  const src = await srcFor(it, key); if (!src) return cut;
   const r = fx.refineAlpha(cut, src);
   if (!it.refineLogged) { it.refineLogged = true; it.log.push(r.skipped ? `Kanten-Rettung übersprungen (${r.skipped})` : `Kanten-Rettung: ${r.added} Detailpixel zurückgeholt`); }
   return r.canvas;
-});
+}
+const getCut = it => cached(it.id + ':cut:' + cutId(it), () => cutPick(it) === 'b' ? blobCanvas(it.cutBlobs[it.cutKey], 1800) : refineA(it, it.cutBlobs[it.cutKey], it.cutKey));
 function dropCache(it) { for (const k of [...cache.keys()]) if (k.startsWith(it.id + ':')) cache.delete(k); }
 
 /* Eingangsdatei einmal lesen: Originalmaße merken; TIFF & Co. (vom Browser nicht lesbar) in eine
@@ -160,6 +214,7 @@ async function process(it) {
   if (!it.analysis) {
     step(it, 'analyze');
     const a = live ? await api('/api/photo/analyze', { image: fx.jpegDataUrl(work, 1400, 0.86), name: it.name, width: it.w, height: it.h }) : { mock: true };
+    if (live) spend(it, CFG.costs?.analyze || 5);
     it.analysis = a.mock ? mockAnalysis() : a;
     if (a._fallback) it.log.push(`Analyse mit ${a._fallback.to} (Fallback)`);
     it.r.tone = { ...it.analysis.tone }; it.r.shadowMode = it.analysis.shadow.mode; it.r.light = it.analysis.shadow.light;
@@ -194,6 +249,7 @@ async function runRetouch(it, { qa, model, extra }) {
   for (let attempt = 1; attempt <= (qa ? 2 : 1); attempt++) {
     step(it, 'retouch', attempt > 1 ? '2. Versuch' : '');
     const t = await api('/api/photo/retouch', { imageUrl: it.origUrl, fixes, extra, strict, model, w: it.w, h: it.h });
+    spend(it, CFG.costs?.retouch?.[t.model] || 12);
     const blob = await fetchBlob(await pollTask(it, t.taskId));
     // als JPG neu in den Kie-Speicher: GPT liefert große PNGs, der Freisteller nimmt max. 5 MB / 4096 px
     const rc = await blobCanvas(blob, WORK_MAX); let jq = 0.94, data = fx.jpegDataUrl(rc, WORK_MAX, jq);
@@ -203,6 +259,7 @@ async function runRetouch(it, { qa, model, extra }) {
     if (!qa) break;
     step(it, 'qa');
     const can = await blobCanvas(blob, 1100);
+    spend(it, CFG.costs?.qa || 5);
     const q = await api('/api/photo/qa', { original: fx.jpegDataUrl(await getWork(it), 1100, 0.85), retouched: fx.jpegDataUrl(can, 1100, 0.85), fixes: extra ? [...fixes, extra] : fixes });
     last.qa = q.mock ? null : q;
     if (q.mock || q.accept) break;
@@ -211,21 +268,44 @@ async function runRetouch(it, { qa, model, extra }) {
   const ok = !last.qa || last.qa.accept;
   it.retouch = { ...last, accepted: ok };
   it.r.useRetouch = ok;
-  if (it.cutBlobs) delete it.cutBlobs.ret;
+  if (it.cutBlobs) delete it.cutBlobs.ret; if (it.cutVariants) delete it.cutVariants.ret;
   it.log.push(ok ? `Retusche übernommen (Versuch ${last.attempt})` : 'Retusche verworfen: ' + (last.qa?.reason || ''));
 }
 
 async function ensureCutout(it) {
   const useRet = it.r.useRetouch && it.retouch?.url;
   const key = useRet ? 'ret' : 'orig';
-  it.cutBlobs = it.cutBlobs || {};
+  it.cutBlobs = it.cutBlobs || {}; it.cutVariants = it.cutVariants || {};
   if (!it.cutBlobs[key]) {
-    step(it, 'cutout');
-    if (it.alphaIn) it.cutBlobs[key] = it.src;
+    if (it.alphaIn) { step(it, 'cutout'); it.cutBlobs[key] = it.src; }
     else if (CFG.kie && CFG.claude) {
-      const t = await api('/api/photo/cutout', { imageUrl: useRet ? it.retouch.url : it.origUrl });
-      it.cutBlobs[key] = await fetchBlob(await pollTask(it, t.taskId));
+      // zwei Verfahren parallel: A = Recraft, B = KI-Greenscreen (Nano Banana) → bessere Version gewinnt
+      step(it, 'cutout', '2 Verfahren parallel');
+      const imageUrl = useRet ? it.retouch.url : it.origUrl;
+      const keyColor = fx.keyColorFor(await srcFor(it, key));
+      const pa = (async () => { const t = await api('/api/photo/cutout', { imageUrl }); spend(it, CFG.costs?.recraft || 1); return fetchBlob(await pollTask(it, t.taskId)); })();
+      const pb = (async () => { try { const t = await api('/api/photo/keyout', { imageUrl, key: keyColor }); spend(it, CFG.costs?.keyout || 12); return { blob: await fetchBlob(await pollTask(it, t.taskId)) }; } catch (e) { if (it.cancelled) throw e; return { err: e.message }; } })();
+      const [aBlob, bRes] = await Promise.all([pa, pb]);
+      const v = { a: aBlob, b: null, pick: 'a' };
+      if (bRes.blob) {
+        step(it, 'compare');
+        const A = await refineA(it, aBlob, key), src = await srcFor(it, key);
+        await sleep(0);
+        const k = fx.keyAlpha(await blobCanvas(bRes.blob), src, A, keyColor);
+        if (k.ok) {
+          v.b = await fx.toBlob(k.canvas, 'image/png');
+          const sh = fx.compareSheets(A, k.canvas);
+          try {
+            const c = await api('/api/photo/compare', { full: sh.full, crops: sh.crops, product: it.analysis?.product });
+            if (c.mock) { v.pick = 'b'; v.why = 'Ohne KI-Vergleich: Greenscreen-Verfahren gewählt'; }
+            else { spend(it, CFG.costs?.compare || 5); v.pick = c.winner === 'B' ? 'b' : 'a'; v.why = c.reason; v.cmp = c; }
+          } catch (e) { v.pick = k.iou > 0.92 ? 'b' : 'a'; v.why = 'Vergleich nicht möglich – automatisch gewählt'; }
+        } else v.bFail = k.reason;
+      } else v.bFail = bRes.err;
+      it.cutVariants[key] = v; it.cutBlobs[key] = v.pick === 'b' ? v.b : v.a;
+      it.log.push(v.b ? `Freisteller: ${v.pick === 'b' ? 'B (KI-Greenscreen)' : 'A (Recraft)'} gewählt – ${v.why}` : `Freisteller: A (Recraft); B nicht verwendbar (${v.bFail})`);
     } else {
+      step(it, 'cutout');
       const w = await getWork(it), c = fx.canvas(w.width, w.height); c.getContext('2d').drawImage(w, 0, 0);
       it.cutBlobs[key] = await fx.toBlob(removeLightBackground(c), 'image/png');
     }
@@ -233,7 +313,7 @@ async function ensureCutout(it) {
   it.cutKey = key;
 }
 
-const aiShadowFresh = it => it.aiShadow && it.aiShadow.key === it.cutKey;
+const aiShadowFresh = it => it.aiShadow && it.aiShadow.key === cutId(it);
 async function ensureAiShadow(it, { force = false, model } = {}) {
   const r = it.r;
   if (!(CFG.kie && CFG.claude)) { r.shadowSource = 'calc'; return; }
@@ -248,12 +328,13 @@ async function ensureAiShadow(it, { force = false, model } = {}) {
     step(it, 'shadow', m !== first ? 'zweiter Versuch' : '');
     try {
       const t = await api('/api/photo/shadow', { imageUrl: up.url, mode: r.shadowMode, light: r.light, model: m });
+      spend(it, CFG.costs?.shadow?.[m] || 8);
       const ai = await blobCanvas(await fetchBlob(await pollTask(it, t.taskId)));
       const big = fx.canvas(placed.layer.width, placed.layer.height); big.getContext('2d').drawImage(ai, 0, 0, big.width, big.height);
       await sleep(0);
       const ex = fx.extractAiShadow(big, placed);
       if (!ex.ok) { lastErr = `${SHADOW_MODEL_LABEL[m] || m}: ${ex.reason}`; it.log.push('KI-Schatten verworfen – ' + lastErr); continue; }
-      it.aiShadow = { key: it.cutKey, blob: await fx.toBlob(ex.canvas, 'image/png'), model: t.model, cost: ex.cost, at: Date.now() };
+      it.aiShadow = { key: cutId(it), blob: await fx.toBlob(ex.canvas, 'image/png'), model: t.model, cost: ex.cost, at: Date.now() };
       it.aiShadowFail = null; r.shadowSource = 'ai';
       it.log.push(`KI-Schatten: ${SHADOW_MODEL_LABEL[t.model] || t.model} (Abweichung Produkt ${ex.cost.toFixed(1)})`);
       return;
@@ -316,7 +397,7 @@ function card(it) {
   el.innerHTML = `<div class="fc-img"></div><div class="fc-meta"><b class="fc-name"></b><span class="fc-out"></span><span class="fc-step"></span><div class="fc-tags"></div></div>
     <div class="fc-act"><button class="btn icon ghost fc-retry" title="Erneut versuchen"><svg class="i"><use href="#i-refresh"/></svg></button><button class="btn icon ghost fc-del" title="Entfernen"><svg class="i"><use href="#i-x"/></svg></button></div>`;
   el.querySelector('.fc-img').onclick = () => it.status === 'done' && openDetail(it);
-  el.querySelector('.fc-retry').onclick = e => { e.stopPropagation(); it.status = 'queued'; it.error = ''; paint(it); pump(); };
+  el.querySelector('.fc-retry').onclick = e => { e.stopPropagation(); it.status = 'queued'; it.error = ''; paint(it); if (!batch || batch.closed) batch = { startCredits: null, est: estimate().avg, spent: 0, items: [it], closed: false }; pump(); };
   el.querySelector('.fc-del').onclick = e => { e.stopPropagation(); it.cancelled = true; items.splice(items.indexOf(it), 1); el.remove(); updateProgress(); };
   paint(it, el); return el;
 }
@@ -325,7 +406,8 @@ function paint(it, el = document.getElementById('c-' + it.id)) {
   el.dataset.status = it.status;
   const img = el.querySelector('.fc-img'), src = it.resultThumb || it.thumb;
   if (src && img.dataset.src !== src) { img.innerHTML = `<img src="${src}" alt="">`; img.dataset.src = src; }
-  img.classList.toggle('busy', !['done', 'error', 'queued'].includes(it.status));
+  else if (!src && it.thumbNote && !img.dataset.note) { img.innerHTML = `<span class="fc-note">${esc(it.thumbNote)}</span>`; img.dataset.note = 1; }
+  img.classList.toggle('busy', !['done', 'error', 'queued', 'ready'].includes(it.status));
   el.querySelector('.fc-name').textContent = it.name;
   const on = it.status === 'done' && prefix() ? outNames(it) : null;
   el.querySelector('.fc-out').textContent = on ? '→ ' + on.png.replace(/\.png$/, '') : '';
@@ -338,22 +420,41 @@ function paint(it, el = document.getElementById('c-' + it.id)) {
   if (a?.warnings?.length) tags.push(`<span class="tag warn" title="${esc(a.warnings.join('\n'))}"><svg class="i"><use href="#i-alert"/></svg>${a.warnings.length}</span>`);
   el.querySelector('.fc-tags').innerHTML = tags.join('');
   el.querySelector('.fc-retry').hidden = it.status !== 'error';
+  if (it.status === 'done' && it.credits > 0) tags.push(`<span class="tag" title="geschätzte Kosten für dieses Bild">ca. ${eur(it.credits)}</span>`), el.querySelector('.fc-tags').innerHTML = tags.join('');
 }
-const STEP_PCT = { queued: 0, prep: 4, upload: 10, analyze: 18, retouch: 35, qa: 50, cutout: 58, shadow: 72, render: 95, done: 100, error: 100 };
+const STEP_PCT = { ready: 0, compare: 66, queued: 0, prep: 4, upload: 10, analyze: 18, retouch: 35, qa: 50, cutout: 58, shadow: 72, render: 95, done: 100, error: 100 };
 function updateProgress() {
-  const done = items.filter(i => i.status === 'done').length, err = items.filter(i => i.status === 'error').length, total = items.length;
-  const pct = total ? items.reduce((s, i) => s + (STEP_PCT[i.status] ?? 0), 0) / total : 0;
-  const finished = total && done + err === total && !running;
-  $('#progressTxt').textContent = total ? `${done}/${total} fertig${err ? ` · ${err} Fehler` : ''}` : '';
+  const ready = items.filter(i => i.status === 'ready'), act = items.filter(i => i.status !== 'ready');
+  const done = items.filter(i => i.status === 'done').length, err = items.filter(i => i.status === 'error').length, total = act.length;
+  const pct = total ? act.reduce((s, i) => s + (STEP_PCT[i.status] ?? 0), 0) / total : 0;
+  const finished = total > 0 && done + err === total && !running;
+  $('#progressTxt').textContent = items.length ? `${done}/${items.length} fertig${err ? ` · ${err} Fehler` : ''}` : '';
   $('#zipBtn').disabled = !done;
-  document.body.classList.toggle('has-items', total > 0);
-  const g = $('#gprog'); g.hidden = !total; g.classList.toggle('finished', !!finished); g.classList.toggle('has-err', err > 0);
-  $('#gprogBar').style.width = (finished ? 100 : Math.max(2, pct)).toFixed(1) + '%';
-  $('#gprogPct').textContent = Math.round(finished ? 100 : pct) + ' %';
-  $('#gprogTxt').textContent = !total ? '' : finished
+  document.body.classList.toggle('has-items', items.length > 0);
+  const g = $('#gprog'); g.hidden = !items.length; g.classList.toggle('finished', finished && !ready.length); g.classList.toggle('has-err', err > 0); g.classList.toggle('idle', !total);
+  $('#gprogBar').style.width = (!total ? 0 : finished ? 100 : Math.max(2, pct)).toFixed(1) + '%';
+  $('#gprogPct').textContent = total ? Math.round(finished ? 100 : pct) + ' %' : '';
+  $('#gprogTxt').textContent = !total ? `${ready.length} ${ready.length === 1 ? 'Bild' : 'Bilder'} bereit` : finished
     ? `Fertig: ${done} von ${total} Bildern${err ? ` · ${err} mit Fehler (auf der Karte ↻ erneut versuchen)` : ''}`
     : `${done} von ${total} Bildern fertig · ${running} in Arbeit${err ? ` · ${err} Fehler` : ''}`;
   $('#gprogZip').hidden = !finished || !done;
+  // Start + Kostenschätzung
+  const e = estimate(), live = CFG.kie && CFG.claude, sb = $('#startBtn');
+  sb.hidden = !ready.length; sb.disabled = !cfgLoaded;
+  sb.innerHTML = `<svg class="i"><use href="#i-play"/></svg>${total ? `${ready.length} weitere starten` : `Start – ${ready.length} ${ready.length === 1 ? 'Bild' : 'Bilder'} bearbeiten`}`;
+  const est = ready.length * e.avg, bal = balance != null ? balance * credEur() : null;
+  const lines = [];
+  if (ready.length && live) lines.push(`Geschätzte Kosten: <b>ca. ${eur(est)}</b> für ${ready.length} ${ready.length === 1 ? 'Bild' : 'Bilder'} <span class="dim">(${eur(e.min)}–${eur(e.max)} pro Bild, je nachdem ob retuschiert wird)</span>`);
+  if (ready.length && live && bal != null && est > bal) lines.push(`<span class="warn">Kie-Guthaben (ca. ${eur(bal)}) reicht voraussichtlich nicht – bitte aufladen.</span>`);
+  if (ready.length && !live) lines.push('<span class="dim">Testmodus – keine Kosten.</span>');
+  if (batch && !batch.closed && total) lines.push(`Bisher verbraucht: <b>ca. ${eur(batch.spent)}</b> <span class="dim">von geschätzt ${eur(batch.est)}</span>`);
+  if (finished && lastBatch && lastBatch.closed && (!batch || batch === lastBatch)) {
+    const n = lastBatch.items.filter(i => i.status === 'done').length || 1;
+    lines.push(lastBatch.actual != null
+      ? `Kosten dieses Laufs: <b>${eur(lastBatch.actual)}</b> laut Kie-Guthaben <span class="dim">(ca. ${eur(lastBatch.actual / n)} pro Bild · geschätzt waren ${eur(lastBatch.est)})</span>`
+      : `Kosten dieses Laufs: <b>ca. ${eur(lastBatch.spent)}</b> <span class="dim">(geschätzt, ca. ${eur(lastBatch.spent / n)} pro Bild)</span>`);
+  }
+  $('#gprogCost').innerHTML = lines.join('<br>');
 }
 
 /* ---------------- Export ---------------- */
@@ -472,6 +573,12 @@ function renderSide() {
       ${CFG.kie && !it.alphaIn ? `<textarea id="sExtra" rows="2" placeholder="Eigene Anweisung (Englisch oder Deutsch), z. B. „Falte am Seitenteil links glätten“"></textarea>
       <button class="btn" id="sRetouch"><svg class="i"><use href="#i-wand"/></svg>${it.retouch ? 'Retusche neu' : 'Retusche ausführen'}</button>` : ''}
     </section>
+    ${(() => { const v = it.cutVariants?.[it.cutKey]; if (!v) return ''; return `<section><h3>Freistellung</h3>
+      ${v.b ? `<div class="seg"><label><input type="radio" name="sCut" value="a" ${v.pick === 'a' ? 'checked' : ''}><span>A · Recraft</span></label><label><input type="radio" name="sCut" value="b" ${v.pick === 'b' ? 'checked' : ''}><span>B · KI-Greenscreen</span></label></div>
+      <p class="hint">${v.cmp ? `KI-Vergleich: <b>${v.cmp.winner}</b> besser (${v.cmp.confidence}/10) – ${esc(v.cmp.reason)}` : esc(v.why || '')}</p>
+      ${v.cmp?.a_issues?.length || v.cmp?.b_issues?.length ? `<ul class="fd-list en">${(v.cmp.a_issues || []).map(t => `<li>A: ${esc(t)}</li>`).join('')}${(v.cmp.b_issues || []).map(t => `<li>B: ${esc(t)}</li>`).join('')}</ul>` : ''}`
+      : `<p class="hint">Nur Verfahren A (Recraft) – B nicht verwendbar: ${esc(v.bFail || '–')}</p>`}
+    </section>`; })()}
     <section><h3>Farbe & Licht <label class="tgl inline"><input type="checkbox" id="sToneOn" ${r.toneOn ? 'checked' : ''}><span class="sw"></span></label></h3>
       <div class="fd-sliders">${TONE_UI.map(([k, l, mi, ma, st]) => `<label class="rng"><span>${l}<output>${(+(r.tone?.[k] ?? 0)).toFixed(2)}</output></span><input type="range" data-tone="${k}" min="${mi}" max="${ma}" step="${st}" value="${r.tone?.[k] ?? 0}"></label>`).join('')}</div>
       <label class="tgl small"><input type="checkbox" id="sLevels" ${r.tone?.levels ? 'checked' : ''}><span class="sw"></span><span><b>Tonwertkorrektur (Schwarz-/Weißpunkt)</b></span></label>
@@ -500,6 +607,11 @@ function renderSide() {
   $('#sLevels').onchange = e => { r.tone = { ...r.tone, levels: e.target.checked }; re(); };
   $('#sToneReset').onclick = () => { r.tone = { ...it.analysis.tone }; r.toneOn = true; re(); renderSide(); };
   s.querySelectorAll('input[name=sMode]').forEach(x => x.onchange = () => { r.shadowMode = x.value; re(); renderSide(); });
+  s.querySelectorAll('input[name=sCut]').forEach(x => x.onchange = () => redo(it, async () => {
+    const v = it.cutVariants[it.cutKey]; v.pick = x.value; it.cutBlobs[it.cutKey] = x.value === 'b' ? v.b : v.a;
+    it.log.push(`Freisteller manuell auf ${x.value.toUpperCase()} gestellt`);
+    if (r.shadowSource === 'ai') await ensureAiShadow(it);
+  }));
   s.querySelectorAll('input[name=sSrc]').forEach(x => x.onchange = () => {
     r.shadowSource = x.value;
     if (x.value === 'ai' && !aiShadowFresh(it)) { if (r.shadowMode === 'none') r.shadowMode = 'floor'; redo(it, () => ensureAiShadow(it)); }
@@ -516,7 +628,7 @@ function renderSide() {
     if (!extra && !it.analysis.fixes?.length) return toast('Bitte eine Anweisung eingeben.', true);
     redo(it, async () => {
       await ensureUpload(it);
-      it.retouch = null; if (it.cutBlobs) delete it.cutBlobs.ret;
+      it.retouch = null; if (it.cutBlobs) delete it.cutBlobs.ret; if (it.cutVariants) delete it.cutVariants.ret;
       await runRetouch(it, { qa: opt().qa, model: opt().editModel, extra });
       await ensureCutout(it);
       if (r.shadowSource === 'ai') await ensureAiShadow(it);

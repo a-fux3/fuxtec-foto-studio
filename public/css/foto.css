@@ -135,3 +135,17 @@ body.has-items .fdrop { min-height: 64px; }
 .fname-prev { margin: 0 0 9px; color: var(--mute); font: 12.5px/1.5 var(--mono); }
 .fname-prev b { color: var(--text); font-weight: 500; }
 .fc-out { font: 11.5px/1.4 var(--mono); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 54px; }
+
+/* Start + Kosten */
+.gprog-cost { margin: 10px 0 0; font-size: 13px; color: var(--text); line-height: 1.6; }
+.gprog-cost:empty { display: none; }
+.gprog-cost .dim { color: var(--mute); }
+.gprog-cost .warn { color: var(--warn); }
+.gprog.idle .gbar { display: none; }
+.gprog.idle .gprog-head { margin-bottom: 0; }
+#startBtn[hidden] { display: none; }
+#startBtn { margin-left: auto; }
+.gprog:not(.idle) #startBtn { margin-left: 0; }
+.fcard[data-status=ready] .fc-step { color: var(--fux); }
+.fc-note { font: 600 13px var(--mono); color: #9a958c; letter-spacing: .08em; }
+.fcard[data-status=ready] .fc-img img { opacity: 1; filter: none; }

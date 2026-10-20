@@ -121,3 +121,34 @@ export function shadowPrompt(mode, light) {
 Soft gradual edges, no hard outlines, no reflection, no floor texture, no horizon line, no gradient or vignette – the rest of the background stays pure white #FFFFFF.
 Keep the product exactly as it is: same position, size, angle, framing, colors, details, logos and text. Do not move, scale, crop or re-render it. Only add the shadow.`;
 }
+
+/* Zweiter Freisteller: Bild-KI setzt das Produkt auf eine Key-Farbe (Greenscreen), die Maske wird im Browser gestanzt.
+ * Farben/Details kommen weiter aus dem Originalfoto – von der KI wird nur die Kontur übernommen. */
+export function keyoutPrompt(key) {
+  const c = key === 'magenta' ? 'pure chroma-key magenta (#FF00FF)' : 'pure chroma-key green (#00FF00)';
+  return `Replace the entire background with a perfectly flat, uniform ${c} – no gradient, no floor, no shadow, no reflection, no color spill on the product. Keep the product exactly as in the photo: same position, size, angle and framing, every fine detail (chain teeth, mesh, spokes, cables, straps, thin edges, holes) crisp and complete; holes and gaps inside the product show the background color. Remove any floor shadow and anything that is not part of the product. Do not change colors, do not re-render or redesign anything.`;
+}
+
+export const COMPARE_SYSTEM = `Du bist Qualitätsprüfer für freigestellte E-Commerce-Produktbilder (PNG mit transparentem Hintergrund) bei FUXTEC.
+Du siehst zwei Freisteller desselben Produkts, A und B, jeweils auf dunkelgrauem Grund (dort sieht man Säume und fehlende Teile am besten), dazu Vergrößerungen der Stellen, an denen sich A und B am stärksten unterscheiden (links A, rechts B).
+Bewerte streng:
+- Vollständigkeit: fehlen Teile (Sägekette, Zähne, Kabel, Gurte, Speichen, Griffenden, dünne Streben)? Fehlende Produktteile sind der schwerste Fehler.
+- Reste: bleiben Hintergrund, Bodenschatten, Spiegelungen oder Fremdobjekte stehen? Sind Löcher/Öffnungen im Produkt (Griffe, Gitter) korrekt durchsichtig?
+- Kanten: scharf und sauber, ohne hellen/grünen/grauen Saum, ohne Treppen oder ausgefranste Ränder.
+winner = die insgesamt bessere Version. reason: ein kurzer deutscher Satz mit dem entscheidenden Unterschied.`;
+
+export const COMPARE_TOOL = {
+  name: 'cutout_compare',
+  description: 'Vergleich zweier Freisteller',
+  input_schema: {
+    type: 'object',
+    properties: {
+      winner: { type: 'string', enum: ['A', 'B'] },
+      confidence: { type: 'integer', description: '1–10' },
+      reason: { type: 'string' },
+      a_issues: { type: 'array', items: { type: 'string' } },
+      b_issues: { type: 'array', items: { type: 'string' } }
+    },
+    required: ['winner', 'confidence', 'reason', 'a_issues', 'b_issues']
+  }
+};

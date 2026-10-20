@@ -129,7 +129,7 @@ export function sharpen(c, amount, radius = 0.9, edge = 0.7) {
  * das aus dem Originalfoto zurückholen: Pixel nahe der Freisteller-Kante, die sich klar vom (lokal geschätzten) Hintergrund
  * unterscheiden und Struktur haben, werden wieder deckend. Weiche Schatten (wenig Struktur) bleiben draußen.
  * cut = Freisteller (RGBA), src = Quellbild in gleicher Größe. Gibt { canvas, added } zurück. */
-export function refineAlpha(cut, src, { radius } = {}) {
+export function refineAlpha(cut, src, { radius, noAdd = false } = {}) {
   const w = cut.width, h = cut.height, N = w * h;
   const C = ctx2d(cut).getImageData(0, 0, w, h), cd = C.data;
   const sc = canvas(w, h); sc.getContext('2d').drawImage(src, 0, 0, w, h);
@@ -180,17 +180,17 @@ export function refineAlpha(cut, src, { radius } = {}) {
     const d = Math.sqrt(dr * dr + dg * dg + db * db); if (d < 20) continue;
     let mn = 255, mx = 0; for (let oy = -2; oy <= 2; oy++) for (let ox = -2; ox <= 2; ox++) { const k = i + oy * w + ox; if (cd[k * 4 + 3] > 128) continue; const v = Lum[k]; if (v < mn) mn = v; if (v > mx) mx = v; } // nur Nicht-Produkt-Nachbarn: Schatten direkt am Produkt bleiben glatt
     if (mx < mn) continue;
-    cand[i] = ss(20, 70, d) * ss(14, 40, mx - mn);
+    cand[i] = ss(30, 85, d) * ss(26, 60, mx - mn); // bewusst streng: Bodenschatten-Kanten sollen nicht als Produkt zurückkommen
   }
   // nur zusammenhängend vom Produkt aus wachsen (keine Staubkörner im Hintergrund)
   const out = new Uint8ClampedArray(cd), vis = new Uint8Array(N); let q = [];
-  for (let i = 0; i < N; i++) if (cd[i * 4 + 3] > 64) { vis[i] = 1; q.push(i); }
+  if (!noAdd) for (let i = 0; i < N; i++) if (cd[i * 4 + 3] > 64) { vis[i] = 1; q.push(i); }
   let added = 0;
   while (q.length) { const nq = [];
     for (const i of q) { const x = i % w, y = (i / w) | 0;
       for (const j of [i - 1, i + 1, i - w, i + w, i - w - 1, i - w + 1, i + w - 1, i + w + 1]) {
         if (j < 0 || j >= N || vis[j]) continue; const X = j % w; if (Math.abs(X - x) > 1) continue;
-        vis[j] = 1; const a = cand[j]; if (a < 0.25) continue;
+        vis[j] = 1; const a = cand[j]; if (a < 0.4) continue;
         const na = Math.round(a * 255); if (na <= out[j * 4 + 3]) { nq.push(j); continue; }
         // Farbe vom Hintergrund entmischen: F = B + (S − B) / a
         const Y = (j / w) | 0, af = na / 255;
@@ -200,9 +200,11 @@ export function refineAlpha(cut, src, { radius } = {}) {
     q = nq; }
   // Matte leicht straffen: fast-transparenter Schleier weg, fast-deckende Pixel ganz deckend
   for (let i = 3; i < out.length; i += 4) { const a = out[i]; if (a && a < 255) out[i] = Math.max(0, Math.min(255, (a - 14) * 255 / 226)); }
-  // Halbtransparente Kantenpixel entfärben (sonst heller/grauer Saum vom Studiogrund im PNG)
+  // Halbtransparente Kantenpixel entfärben (sonst heller/grauer Saum vom Studiogrund im PNG);
+  // halbtransparente Pixel, die farblich exakt dem Hintergrund entsprechen, sind Hintergrundreste → weg
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const i = y * w + x, a = out[i * 4 + 3]; if (a < 12 || a > 243) continue;
+    if (a < 160) { const dr = sd[i * 4] - bgAt(x, y, 0), dg = sd[i * 4 + 1] - bgAt(x, y, 1), db = sd[i * 4 + 2] - bgAt(x, y, 2); if (dr * dr + dg * dg + db * db < 400) { out[i * 4 + 3] = 0; continue; } }
     const af = Math.max(a / 255, 0.3);
     for (let c = 0; c < 3; c++) { const B = bgAt(x, y, c); out[i * 4 + c] = B + (sd[i * 4 + c] - B) / af; }
   }
@@ -460,6 +462,87 @@ function alignXY(P, A, M, n, g) {
   }
   return best;
 }
+/* ---------------- Zweiter Freisteller (Key-Farbe) ----------------
+ * key = KI-Bild mit Produkt auf Grün/Magenta, src = Quellfoto, cutA = Recraft-Freisteller (gleiche Größe wie das Ergebnis).
+ * Ausrichtung wie beim KI-Schatten, Maske aus der Farbdominanz, Farben aus dem Quellfoto, danach Kanten-Rettung/Entfärbung. */
+export function keyColorFor(cutA) { // grünliche Produkte → Magenta-Key
+  const t = fitMax(cutA, 300), d = ctx2d(t).getImageData(0, 0, t.width, t.height).data; let n = 0, g = 0;
+  for (let i = 0; i < d.length; i += 4) { if (d[i + 3] < 200) continue; n++;
+    const r = d[i] / 255, gg = d[i + 1] / 255, b = d[i + 2] / 255, mx = Math.max(r, gg, b), mn = Math.min(r, gg, b), sat = mx ? (mx - mn) / mx : 0;
+    if (mx === gg && sat > 0.3 && mx > 0.25 && gg - Math.max(r, b) > 0.08) g++; }
+  return n && g / n > 0.03 ? 'magenta' : 'green';
+}
+export function keyAlpha(keyImg, src, cutA, key = 'green') {
+  const W = cutA.width, H = cutA.height;
+  const B0 = canvas(W, H); B0.getContext('2d').drawImage(keyImg, 0, 0, W, H);
+  const S = canvas(W, H); S.getContext('2d').drawImage(src, 0, 0, W, H);
+  // Ausrichtung auf Produktpixeln (Maske von A)
+  let n = 200, P = lumArr(S, n), A = lumArr(B0, n), M = alphaArr(cutA, n);
+  const g = align(P, A, M, n, { s: range(0.95, 1.05, 0.01), d: range(-12, 12, 1) });
+  if (!(g.cost < 40)) return { ok: false, reason: 'KI-Bild passt nicht zum Foto' };
+  n = 600; P = lumArr(S, n); A = lumArr(B0, n); M = alphaArr(cutA, n);
+  const al = alignXY(P, A, M, n, { s: g.s, dx: g.dx * 3, dy: g.dy * 3 });
+  if (!(al.cost < 30)) return { ok: false, reason: 'KI hat das Produkt verändert', cost: al.cost };
+  const Bw = canvas(W, H), bx = Bw.getContext('2d'), s = al.s, dX = al.dx * W / n, dY = al.dy * H / n;
+  bx.fillStyle = key === 'magenta' ? '#ff00ff' : '#00ff00'; bx.fillRect(0, 0, W, H); bx.imageSmoothingQuality = 'high';
+  bx.setTransform(1 / s, 0, 0, 1 / s, W / 2 - (W / 2 + dX) / s, H / 2 - (H / 2 + dY) / s); bx.drawImage(B0, 0, 0); bx.setTransform(1, 0, 0, 1, 0, 0);
+  const bd = bx.getImageData(0, 0, W, H).data;
+  // Erlaubter Bereich: Umgebung von A (fängt KI-Reste weit weg vom Produkt ab)
+  const R = Math.max(8, Math.round(Math.max(W, H) * 0.02)), zone = canvas(W, H), zx = zone.getContext('2d');
+  zx.filter = `blur(${R}px)`; zx.drawImage(cutA, 0, 0); const zd = ctx2d(zone).getImageData(0, 0, W, H).data;
+  const dom = i => key === 'magenta' ? (bd[i] + bd[i + 2]) / 2 - bd[i + 1] : bd[i + 1] - Math.max(bd[i], bd[i + 2]);
+  // Key-Stärke des Hintergrunds = Median am Rand
+  const border = []; for (let x = 0; x < W; x += 7) border.push(dom(x * 4), dom(((H - 1) * W + x) * 4)); for (let y = 0; y < H; y += 7) border.push(dom(y * W * 4), dom((y * W + W - 1) * 4));
+  border.sort((a, b) => a - b); const bgD = border[border.length >> 1];
+  if (!(bgD > 80)) return { ok: false, reason: 'Kein sauberer Key-Hintergrund' };
+  const lo = bgD * 0.16, hi = bgD * 0.72;
+  const sd = ctx2d(S).getImageData(0, 0, W, H).data, out = new Uint8ClampedArray(W * H * 4);
+  let inter = 0, uni = 0; const ad = ctx2d(cutA).getImageData(0, 0, W, H).data;
+  const bgL = (() => { const v = []; for (let y = 0; y < H; y += 9) for (let x = 0; x < W; x += 9) { const i = (y * W + x) * 4; if (zd[i + 3] < 3) v.push((sd[i] + sd[i + 1] + sd[i + 2]) / 3); } v.sort((a, b) => a - b); return v.length ? v[v.length >> 1] : 255; })();
+  for (let i = 0, p = 0; p < W * H; p++, i += 4) {
+    let a = 1 - (dom(i) - lo) / (hi - lo); a = a < 0 ? 0 : a > 1 ? 1 : a;
+    if (zd[i + 3] < 3) a = 0;
+    // Wo Recraft „Hintergrund“ sagt, zählt das Key-Ergebnis nur bei echter Struktur (Kettenzähne, Gitter) –
+    // glatte Flächen dort sind Bodenschatten oder Hintergrundreste, die die KI nicht ganz grün gemacht hat
+    if (a > 0 && ad[i + 3] < 26) {
+      const x = p % W, y = (p / W) | 0; let mn = 255, mx = 0;
+      for (let oy = -2; oy <= 2; oy++) for (let ox = -2; ox <= 2; ox++) { const X = x + ox, Y = y + oy; if (X < 0 || Y < 0 || X >= W || Y >= H) continue; const k = (Y * W + X) * 4, L = (sd[k] + sd[k + 1] + sd[k + 2]) / 3; if (L < mn) mn = L; if (L > mx) mx = L; }
+      if (mx - mn < 34) a = 0; else { const L = (sd[i] + sd[i + 1] + sd[i + 2]) / 3; if (L > bgL - 30) a = 0; }
+    }
+    out[i] = sd[i]; out[i + 1] = sd[i + 1]; out[i + 2] = sd[i + 2]; out[i + 3] = Math.round(a * 255);
+    const ia = ad[i + 3] > 128, ib = a > 0.5; if (ia && ib) inter++; if (ia || ib) uni++;
+  }
+  const iou = uni ? inter / uni : 0;
+  if (iou < 0.8) return { ok: false, reason: `Form weicht zu stark ab (${Math.round(iou * 100)} %)`, iou };
+  const raw = canvas(W, H); raw.getContext('2d').putImageData(new ImageData(out, W, H), 0, 0);
+  const ref = refineAlpha(raw, S, { noAdd: true }); // Key-Maske hat die Details schon – nur entfärben/straffen
+  return { ok: true, canvas: ref.canvas, iou, cost: al.cost, key };
+}
+
+/* Vergleichsbilder für Claude: beide Freisteller auf Dunkelgrau, dazu die 2 Stellen mit dem größten Unterschied vergrößert */
+export function compareSheets(a, b) {
+  const W = a.width, H = a.height, bgc = '#3a3a3a';
+  const on = (c, w, h, sx = 0, sy = 0, sw = W, sh = H) => { const o = canvas(w, h), x = o.getContext('2d'); x.fillStyle = bgc; x.fillRect(0, 0, w, h); x.drawImage(c, sx, sy, sw, sh, 0, 0, w, h); return o; };
+  const fw = 760, fh = Math.round(760 * H / W), full = canvas(fw * 2 + 12, fh), fx = full.getContext('2d');
+  fx.fillStyle = '#fff'; fx.fillRect(0, 0, full.width, fh); fx.drawImage(on(a, fw, fh), 0, 0); fx.drawImage(on(b, fw, fh), fw + 12, 0);
+  // Unterschiedskarte auf 1/8
+  const n = 8, gw = Math.ceil(W / 64), gh = Math.ceil(H / 64), aa = alphaArrWH(a, gw * n, gh * n), ba = alphaArrWH(b, gw * n, gh * n), diff = new Float32Array(gw * gh);
+  for (let y = 0; y < gh * n; y++) for (let x = 0; x < gw * n; x++) { const i = y * gw * n + x; diff[((y / n) | 0) * gw + ((x / n) | 0)] += Math.abs(aa[i] - ba[i]); }
+  const picks = [];
+  for (let k = 0; k < 2; k++) { let bi = -1, bv = 0; for (let i = 0; i < diff.length; i++) if (diff[i] > bv) { bv = diff[i]; bi = i; }
+    if (bi < 0 || bv < 255 * 6) break; const cx = (bi % gw) * 64 + 32, cy = ((bi / gw) | 0) * 64 + 32; picks.push([cx, cy]);
+    for (let i = 0; i < diff.length; i++) { const x = (i % gw) * 64 + 32, y = ((i / gw) | 0) * 64 + 32; if (Math.abs(x - cx) < 260 && Math.abs(y - cy) < 260) diff[i] = 0; } }
+  let crops = null;
+  if (picks.length) {
+    const cs = 240, z = 2, tile = cs * z; crops = canvas(tile * 2 + 12, picks.length * (tile + 12) - 12); const cx2 = crops.getContext('2d');
+    cx2.fillStyle = '#fff'; cx2.fillRect(0, 0, crops.width, crops.height);
+    picks.forEach(([x, y], r) => { const sx = Math.max(0, Math.min(W - cs, x - cs / 2)), sy = Math.max(0, Math.min(H - cs, y - cs / 2));
+      cx2.drawImage(on(a, tile, tile, sx, sy, cs, cs), 0, r * (tile + 12)); cx2.drawImage(on(b, tile, tile, sx, sy, cs, cs), tile + 12, r * (tile + 12)); });
+  }
+  return { full: full.toDataURL('image/jpeg', 0.86), crops: crops ? crops.toDataURL('image/jpeg', 0.86) : null };
+}
+function alphaArrWH(c, w, h) { const t = resized(c, w, h), d = ctx2d(t).getImageData(0, 0, w, h).data, A = new Uint8Array(w * h); for (let i = 3, j = 0; i < d.length; i += 4, j++) A[j] = d[i]; return A; }
+
 /* KI-Schatten mit Stärke k skalieren: a' = 1 − (1 − a)^k (bleibt weich, kann verstärken) */
 export function scaleShadow(sh, k) {
   if (Math.abs(k - 1) < 0.01) return sh;

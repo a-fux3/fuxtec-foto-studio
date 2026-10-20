@@ -20,6 +20,7 @@
     <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 20V9M7 14l5-5 5 5M4 4h16"/></symbol>
     <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
   <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 5v14l12-7z" fill="currentColor" stroke="none"/></symbol>
   <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></symbol>
   <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
   <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.5-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.5 4.5L20 16M20 20v-4h-4"/></symbol>
@@ -37,7 +38,7 @@
     <div class="fbar-main">
       <div class="fbar-title">
         <h1>Produktfotos im Bulk</h1>
-        <p>Fotos reinziehen – der Rest läuft automatisch: KI-Analyse, Retusche bei Bedarf, Freistellen, KI-Schatten. Ausgabe 1200 × 1200, Produkt im 900er-Rahmen, als JPG (weiß) und PNG (transparent).</p>
+        <p>Fotos reinziehen, Dateiname eintragen, auf Start drücken – der Rest läuft automatisch: KI-Analyse, Retusche bei Bedarf, Freistellen mit zwei Verfahren (das bessere gewinnt), KI-Schatten. Ausgabe 1200 × 1200, Produkt im 900er-Rahmen, als JPG (weiß) und PNG (transparent).</p>
       </div>
       <div class="fbar-actions">
         <span id="progressTxt" class="prog-txt"></span>
@@ -92,8 +93,10 @@
 
   <section class="gprog card" id="gprog" hidden>
     <div class="gprog-head"><b id="gprogTxt"></b><span id="gprogPct" class="gprog-pct"></span>
+      <button class="btn primary big" id="startBtn" hidden><svg class="i"><use href="#i-play"/></svg>Start</button>
       <button class="btn primary" id="gprogZip" hidden><svg class="i"><use href="#i-archive"/></svg>Alle als ZIP herunterladen</button></div>
     <div class="gbar"><i id="gprogBar"></i></div>
+    <p class="gprog-cost" id="gprogCost"></p>
   </section>
 
   <label class="fdrop" id="drop">

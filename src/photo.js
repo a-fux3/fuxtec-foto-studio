@@ -3,11 +3,18 @@
  * alle Kie-Aufgaben arbeiten mit diesen URLs, Ergebnisse holt der Browser über /api/photo/fetch.
  * Vars: KIE_EDIT_MODEL (nano-banana-2), KIE_REMOVE_BG_MODEL, CLAUDE_PHOTO_MODEL (sonst CLAUDE_MODEL)
  */
-import { ANALYZE_SYSTEM, ANALYZE_TOOL, QA_SYSTEM, QA_TOOL, retouchPrompt, shadowPrompt } from './photo-prompts.js';
+import { ANALYZE_SYSTEM, ANALYZE_TOOL, QA_SYSTEM, QA_TOOL, COMPARE_SYSTEM, COMPARE_TOOL, retouchPrompt, shadowPrompt, keyoutPrompt } from './photo-prompts.js';
 
 const KIE_UPLOAD = 'https://kieai.redpandaai.co/api/file-base64-upload';
 const EDIT_MODELS = ['gpt-image-2-5-flare-image-to-image', 'nano-banana-2', 'nano-banana-pro'];
 const GPT_RATIOS = [['1:1', 1], ['3:2', 1.5], ['2:3', 2 / 3], ['4:3', 4 / 3], ['3:4', 0.75], ['16:9', 16 / 9], ['9:16', 9 / 16], ['21:9', 21 / 9]];
+/* Kosten in Kie-Credits pro Aufruf (gemessen bzw. laut Kie, Claude geschätzt) – die App rechnet in Euro um
+ * und gleicht die Schätzung nach jedem Lauf mit dem echten Kie-Guthaben ab. */
+const COSTS = {
+  analyze: 5, qa: 5, compare: 5, recraft: 1, keyout: 12,
+  retouch: { 'gpt-image-2-5-flare-image-to-image': 10, 'nano-banana-2': 12, 'nano-banana-pro': 18 },
+  shadow: { 'gpt-image-2-5-flare-image-to-image': 6, 'nano-banana-2': 8, 'nano-banana-2-1': 4, 'nano-banana-pro': 18 }
+};
 const nearestRatio = r => GPT_RATIOS.reduce((a, b) => (Math.abs(Math.log(b[1] / r)) < Math.abs(Math.log(a[1] / r)) ? b : a))[0];
 const SHADOW_MODELS = ['nano-banana-2', 'nano-banana-2-1', 'nano-banana-pro', 'gpt-image-2-5-flare-image-to-image'];
 
@@ -19,8 +26,34 @@ export async function handlePhoto(req, env, url, h) {
 
   if (p === '/config') return json({
     claude: claudeReady(env), kie: !!env.KIE_API_KEY, model, editModel: env.KIE_EDIT_MODEL || 'gpt-image-2-5-flare-image-to-image', editModels: EDIT_MODELS,
-    shadowModel: env.KIE_SHADOW_MODEL || 'gpt-image-2-5-flare-image-to-image', shadowModels: SHADOW_MODELS
+    shadowModel: env.KIE_SHADOW_MODEL || 'gpt-image-2-5-flare-image-to-image', shadowModels: SHADOW_MODELS,
+    costs: COSTS, creditEur: +(env.CREDIT_EUR || 0.0045)
   });
+
+  /* Kie-Guthaben (für Kostenanzeige vorher/nachher) */
+  if (p === '/credits') {
+    if (!env.KIE_API_KEY) return json({ mock: true });
+    const r = await fetch('https://api.kie.ai/api/v1/chat/credit', { headers: { authorization: `Bearer ${env.KIE_API_KEY}` } });
+    const j = await r.json().catch(() => ({}));
+    const c = typeof j.data === 'number' ? j.data : +(j.data?.credits ?? j.data?.balance ?? NaN);
+    return Number.isFinite(c) ? json({ credits: c }) : err('Guthaben nicht lesbar', 502);
+  }
+
+  /* Zweiter Freisteller: Produkt auf Key-Farbe (Nano Banana 2, 2K, Seitenverhältnis wie Original) */
+  if (p === '/keyout' && m === 'POST') {
+    const b = await body(); if (!env.KIE_API_KEY) return json({ mock: true });
+    const input = { prompt: keyoutPrompt(b.key), image_input: [b.imageUrl], aspect_ratio: 'auto', resolution: '2K', output_format: 'png' };
+    return json({ taskId: await kieCreate(env, env.KIE_KEYOUT_MODEL || 'nano-banana-2', input) });
+  }
+
+  /* Freisteller-Vergleich A/B (Claude sieht beide auf dunklem Grund + Detailausschnitte) */
+  if (p === '/compare' && m === 'POST') {
+    const b = await body(); if (!claudeReady(env)) return json({ mock: true });
+    const content = [{ type: 'text', text: 'Gesamtansicht – links A, rechts B:' }, imgBlock(b.full)];
+    if (b.crops) content.push({ type: 'text', text: 'Vergrößerte Unterschiede – jeweils links A, rechts B:' }, imgBlock(b.crops));
+    content.push({ type: 'text', text: `Produkt: ${b.product || '-'}. Welcher Freisteller ist besser?` });
+    return json(await claude(env, { system: COMPARE_SYSTEM, tool: COMPARE_TOOL, maxTokens: 800, model, messages: [{ role: 'user', content }] }));
+  }
 
   /* Upload: Body {base64Data, fileName} wird ungeparst an Kie weitergereicht (spart Worker-CPU) */
   if (p === '/upload' && m === 'POST') {
