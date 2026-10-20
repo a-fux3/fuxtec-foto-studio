@@ -125,3 +125,13 @@ body.has-items .fdrop { min-height: 64px; }
 .gprog.finished .gbar i { background: var(--ok); }
 .gprog.finished.has-err .gbar i { background: linear-gradient(90deg, var(--ok), var(--warn)); }
 @media (max-width: 760px) { .gprog { top: 64px; } .gprog-pct { margin-left: 0; } }
+
+/* Dateiname */
+.fname { display: flex; align-items: flex-end; gap: 18px; flex-wrap: wrap; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+.fname-in { display: grid; gap: 6px; margin: 0; flex: 0 1 380px; }
+.fname-in small { color: var(--faint); font-weight: 400; }
+.fname-in input { background: var(--well); color: var(--text); border: 1px solid var(--line-2); border-radius: 8px; padding: 9px 12px; font: 600 15px/1.2 var(--mono); letter-spacing: .02em; width: 100%; }
+.fname-in input:focus { outline: 2px solid var(--fux); outline-offset: 1px; border-color: transparent; }
+.fname-prev { margin: 0 0 9px; color: var(--mute); font: 12.5px/1.5 var(--mono); }
+.fname-prev b { color: var(--text); font-weight: 500; }
+.fc-out { font: 11.5px/1.4 var(--mono); color: var(--faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 54px; }

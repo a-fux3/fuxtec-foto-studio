@@ -6,7 +6,9 @@
 import { ANALYZE_SYSTEM, ANALYZE_TOOL, QA_SYSTEM, QA_TOOL, retouchPrompt, shadowPrompt } from './photo-prompts.js';
 
 const KIE_UPLOAD = 'https://kieai.redpandaai.co/api/file-base64-upload';
-const EDIT_MODELS = ['nano-banana-2', 'nano-banana-pro'];
+const EDIT_MODELS = ['gpt-image-2-5-flare-image-to-image', 'nano-banana-2', 'nano-banana-pro'];
+const GPT_RATIOS = [['1:1', 1], ['3:2', 1.5], ['2:3', 2 / 3], ['4:3', 4 / 3], ['3:4', 0.75], ['16:9', 16 / 9], ['9:16', 9 / 16], ['21:9', 21 / 9]];
+const nearestRatio = r => GPT_RATIOS.reduce((a, b) => (Math.abs(Math.log(b[1] / r)) < Math.abs(Math.log(a[1] / r)) ? b : a))[0];
 const SHADOW_MODELS = ['nano-banana-2', 'nano-banana-2-1', 'nano-banana-pro', 'gpt-image-2-5-flare-image-to-image'];
 
 export async function handlePhoto(req, env, url, h) {
@@ -16,7 +18,7 @@ export async function handlePhoto(req, env, url, h) {
   const model = env.CLAUDE_PHOTO_MODEL || env.CLAUDE_MODEL;
 
   if (p === '/config') return json({
-    claude: claudeReady(env), kie: !!env.KIE_API_KEY, model, editModel: env.KIE_EDIT_MODEL || 'nano-banana-2', editModels: EDIT_MODELS,
+    claude: claudeReady(env), kie: !!env.KIE_API_KEY, model, editModel: env.KIE_EDIT_MODEL || 'gpt-image-2-5-flare-image-to-image', editModels: EDIT_MODELS,
     shadowModel: env.KIE_SHADOW_MODEL || 'gpt-image-2-5-flare-image-to-image', shadowModels: SHADOW_MODELS
   });
 
@@ -43,9 +45,11 @@ export async function handlePhoto(req, env, url, h) {
     const b = await body(); if (!env.KIE_API_KEY) return json({ mock: true });
     const fixes = (b.fixes || []).filter(Boolean).slice(0, 8);
     if (!fixes.length && !b.extra) return err('Keine Retusche-Anweisungen');
-    const editModel = EDIT_MODELS.includes(b.model) ? b.model : (env.KIE_EDIT_MODEL || 'nano-banana-2');
+    const editModel = EDIT_MODELS.includes(b.model) ? b.model : (env.KIE_EDIT_MODEL || 'gpt-image-2-5-flare-image-to-image');
     const prompt = retouchPrompt(fixes, b.extra, b.strict);
-    const input = { prompt, image_input: [b.imageUrl], aspect_ratio: b.aspect || 'auto', resolution: '2K', output_format: 'jpg' };
+    const input = editModel.startsWith('gpt-image') // GPT: 2K nur mit festem Seitenverhältnis → das zum Foto passendste
+      ? { prompt, input_urls: [b.imageUrl], aspect_ratio: nearestRatio((+b.w || 1) / (+b.h || 1)), resolution: '2K' }
+      : { prompt, image_input: [b.imageUrl], aspect_ratio: 'auto', resolution: '2K', output_format: 'jpg' };
     return json({ taskId: await kieCreate(env, editModel, input), prompt, model: editModel });
   }
 

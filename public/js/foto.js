@@ -13,13 +13,14 @@ let CFG = { kie: false, claude: false };
 const items = []; let running = 0, current = null;
 const opt = () => ({
   retouch: document.querySelector('input[name=retouch]:checked').value,
-  editModel: document.querySelector('input[name=editModel]:checked').value,
+  editModel: document.querySelector('input[name=editModel]:checked')?.value || 'gpt-image-2-5-flare-image-to-image',
   conc: +document.querySelector('input[name=conc]:checked').value,
   strength: +$('#strength').value / 100,
   qa: $('#qa').checked,
   shadowSrc: document.querySelector('input[name=shadowSrc]:checked')?.value || 'ai',
   shadowModel: document.querySelector('input[name=shadowModel]:checked')?.value || 'gpt-image-2-5-flare-image-to-image'
 });
+const EDIT_MODEL_LABEL = { 'gpt-image-2-5-flare-image-to-image': 'GPT Image 2.5', 'nano-banana-2': 'Nano Banana 2', 'nano-banana-pro': 'NB Pro' };
 const SHADOW_MODEL_LABEL = { 'nano-banana-2': 'Nano Banana 2', 'nano-banana-2-1': 'Nano Banana 2.1', 'nano-banana-pro': 'NB Pro', 'gpt-image-2-5-flare-image-to-image': 'GPT Image 2.5' };
 
 /* ---------------- Start ---------------- */
@@ -36,6 +37,7 @@ async function loadConfig() {
 init();
 async function init() {
   fetch('/assets/logo/fuxkopf_path.txt').then(r => r.text()).then(p => { $('#brandLogo').innerHTML = `<path fill-rule="evenodd" d="${p}"/>`; }).catch(() => { });
+  $('#namePrefix').addEventListener('input', updateNames); updateNames();
   loadConfig(); // läuft parallel – Bilder können sofort reingezogen werden, die Verarbeitung startet, sobald die Konfiguration da ist
   $('#strengthOut').textContent = $('#strength').value + ' %';
   document.querySelector('.fbar-opts').addEventListener('change', saveOpts);
@@ -175,7 +177,7 @@ async function process(it) {
 
   // 5) Tonwerte, Rahmen, Schatten
   step(it, 'render'); await rerender(it);
-  it.status = 'done'; paint(it);
+  it.status = 'done'; paint(it); if (prefix()) for (const x of items) paint(x);
 }
 async function ensureUpload(it) {
   if (it.origUrl && Date.now() - it.origAt < 20 * 3600e3) return;
@@ -191,9 +193,12 @@ async function runRetouch(it, { qa, model, extra }) {
   let strict = '', last = null;
   for (let attempt = 1; attempt <= (qa ? 2 : 1); attempt++) {
     step(it, 'retouch', attempt > 1 ? '2. Versuch' : '');
-    const t = await api('/api/photo/retouch', { imageUrl: it.origUrl, fixes, extra, strict, model });
-    const url = await pollTask(it, t.taskId);
-    const blob = await fetchBlob(url);
+    const t = await api('/api/photo/retouch', { imageUrl: it.origUrl, fixes, extra, strict, model, w: it.w, h: it.h });
+    const blob = await fetchBlob(await pollTask(it, t.taskId));
+    // als JPG neu in den Kie-Speicher: GPT liefert große PNGs, der Freisteller nimmt max. 5 MB / 4096 px
+    const rc = await blobCanvas(blob, WORK_MAX); let jq = 0.94, data = fx.jpegDataUrl(rc, WORK_MAX, jq);
+    while (data.length * 0.75 > UPLOAD_MAX_BYTES && jq > 0.6) { jq -= 0.07; data = fx.jpegDataUrl(rc, WORK_MAX, jq); }
+    const url = (await api('/api/photo/upload', { base64Data: data, uploadPath: 'fuxtec-foto', fileName: `${it.id}-ret${attempt}.jpg` })).url;
     last = { url, blob, model: t.model, attempt, extra };
     if (!qa) break;
     step(it, 'qa');
@@ -308,7 +313,7 @@ function mockAnalysis() {
 /* ---------------- Karten ---------------- */
 function card(it) {
   const el = document.createElement('article'); el.className = 'fcard'; el.id = 'c-' + it.id;
-  el.innerHTML = `<div class="fc-img"></div><div class="fc-meta"><b class="fc-name"></b><span class="fc-step"></span><div class="fc-tags"></div></div>
+  el.innerHTML = `<div class="fc-img"></div><div class="fc-meta"><b class="fc-name"></b><span class="fc-out"></span><span class="fc-step"></span><div class="fc-tags"></div></div>
     <div class="fc-act"><button class="btn icon ghost fc-retry" title="Erneut versuchen"><svg class="i"><use href="#i-refresh"/></svg></button><button class="btn icon ghost fc-del" title="Entfernen"><svg class="i"><use href="#i-x"/></svg></button></div>`;
   el.querySelector('.fc-img').onclick = () => it.status === 'done' && openDetail(it);
   el.querySelector('.fc-retry').onclick = e => { e.stopPropagation(); it.status = 'queued'; it.error = ''; paint(it); pump(); };
@@ -322,6 +327,8 @@ function paint(it, el = document.getElementById('c-' + it.id)) {
   if (src && img.dataset.src !== src) { img.innerHTML = `<img src="${src}" alt="">`; img.dataset.src = src; }
   img.classList.toggle('busy', !['done', 'error', 'queued'].includes(it.status));
   el.querySelector('.fc-name').textContent = it.name;
+  const on = it.status === 'done' && prefix() ? outNames(it) : null;
+  el.querySelector('.fc-out').textContent = on ? '→ ' + on.png.replace(/\.png$/, '') : '';
   el.querySelector('.fc-step').textContent = it.status === 'error' ? it.error : STEPS[it.status] + (it.sub ? ' · ' + it.sub : '');
   const a = it.analysis, tags = [];
   if (a && !a.mock) tags.push(`<span class="tag">${esc(a.product)}</span>`);
@@ -354,22 +361,38 @@ async function outBlobs(it) {
   const out = await ensureOut(it);
   return { jpg: await fx.toBlob(out.jpg, 'image/jpeg', 0.93), png: await fx.toBlob(out.png, 'image/png') };
 }
+/* Dateinamen: mit Artikelnummer → PRÄFIX_freigestellt_01.png / PRÄFIX_whitepack_01.jpg (Nummer = Reihenfolge der fertigen Bilder) */
+function prefix() { return ($('#namePrefix').value || '').replace(/[<>:"/\\|?*\u0000-\u001f]+/g, '').trim().replace(/\s+/g, '-'); }
+function outNames(it) {
+  const p = prefix();
+  if (!p) return { png: it.base + '.png', jpg: it.base + '.jpg' };
+  const list = items.filter(i => i.status === 'done'), idx = list.indexOf(it) + 1 || list.length + 1, nr = String(idx).padStart(2, '0');
+  return { png: `${p}_freigestellt_${nr}.png`, jpg: `${p}_whitepack_${nr}.jpg` };
+}
+function updateNames() {
+  const p = prefix();
+  $('#namePrev').innerHTML = p ? `→ <b>${esc(p)}_freigestellt_01.png</b> · <b>${esc(p)}_whitepack_01.jpg</b> …` : 'Ausgabe unter den Originalnamen';
+  for (const it of items) paint(it);
+}
+
 async function zipAll() {
   const done = items.filter(i => i.status === 'done'); if (!done.length) return;
   const btn = $('#zipBtn'); btn.disabled = true; const label = btn.innerHTML; btn.textContent = 'ZIP wird erstellt …';
   try {
-    const zip = new JSZip(), used = new Set(), rows = [['Datei', 'Produkt', 'Retusche', 'QA', 'Hinweise', 'Probleme']];
+    const zip = new JSZip(), used = new Set(), rows = [['Original', 'PNG', 'JPG', 'Produkt', 'Retusche', 'QA', 'Hinweise', 'Probleme']];
     for (const it of done) {
-      let n = it.base, k = 2; while (used.has(n.toLowerCase())) n = `${it.base}_${k++}`; used.add(n.toLowerCase());
+      const nm = outNames(it); let jn = nm.jpg, pn = nm.png, k = 2;
+      while (used.has(jn.toLowerCase()) || used.has(pn.toLowerCase())) { jn = nm.jpg.replace(/\.jpg$/, `_${k}.jpg`); pn = nm.png.replace(/\.png$/, `_${k}.png`); k++; }
+      used.add(jn.toLowerCase()); used.add(pn.toLowerCase());
       const b = await outBlobs(it);
-      zip.file(`JPG/${n}.jpg`, b.jpg); zip.file(`PNG/${n}.png`, b.png);
+      zip.file(`JPG/${jn}`, b.jpg); zip.file(`PNG/${pn}`, b.png);
       const a = it.analysis || {};
-      rows.push([n, a.product || '', it.retouch ? (it.r.useRetouch ? 'ja' : 'verworfen') : 'nein', it.retouch?.qa ? `${it.retouch.qa.score}/10 ${it.retouch.qa.reason}` : '', (a.warnings || []).join(' | '), (a.issues || []).join(' | ')]);
+      rows.push([it.name, pn, jn, a.product || '', it.retouch ? (it.r.useRetouch ? 'ja' : 'verworfen') : 'nein', it.retouch?.qa ? `${it.retouch.qa.score}/10 ${it.retouch.qa.reason}` : '', (a.warnings || []).join(' | '), (a.issues || []).join(' | ')]);
       it.zipped = true;
     }
     zip.file('protokoll.csv', '﻿' + rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\r\n'));
     const blob = await zip.generateAsync({ type: 'blob', compression: 'STORE' });
-    download(blob, `FUXTEC_Produktfotos_${new Date().toISOString().slice(0, 10)}.zip`);
+    download(blob, `${prefix() || 'FUXTEC_Produktfotos'}_${new Date().toISOString().slice(0, 10)}.zip`);
     toast(`${done.length} Bilder exportiert.`);
   } catch (e) { toast('ZIP fehlgeschlagen: ' + e.message, true); }
   finally { btn.innerHTML = label; btn.disabled = false; }
@@ -443,7 +466,7 @@ function renderSide() {
       ${a.warnings?.length ? `<div class="fd-warn"><svg class="i"><use href="#i-alert"/></svg>${a.warnings.map(esc).join('<br>')}</div>` : ''}
     </section>
     <section><h3>Retusche</h3>
-      ${it.retouch ? `<p class="hint">${esc(it.retouch.model)} · Versuch ${it.retouch.attempt}${q ? ` · QA ${q.score}/10: ${esc(q.reason)}` : ''}</p>` : `<p class="hint">${a.retouch_needed ? 'Vorgeschlagen, aber nicht ausgeführt.' : 'Nicht nötig.'}</p>`}
+      ${it.retouch ? `<p class="hint">${esc(EDIT_MODEL_LABEL[it.retouch.model] || it.retouch.model)} · Versuch ${it.retouch.attempt}${q ? ` · QA ${q.score}/10: ${esc(q.reason)}` : ''}</p>` : `<p class="hint">${a.retouch_needed ? 'Vorgeschlagen, aber nicht ausgeführt.' : 'Nicht nötig.'}</p>`}
       ${a.fixes?.length ? list(a.fixes, 'en') : ''}
       ${it.retouch ? `<label class="tgl small"><input type="checkbox" id="sUseRet" ${r.useRetouch ? 'checked' : ''}><span class="sw"></span><span><b>Retusche verwenden</b><small>Aus = Original freistellen</small></span></label>` : ''}
       ${CFG.kie && !it.alphaIn ? `<textarea id="sExtra" rows="2" placeholder="Eigene Anweisung (Englisch oder Deutsch), z. B. „Falte am Seitenteil links glätten“"></textarea>
@@ -485,8 +508,8 @@ function renderSide() {
   const sn = $('#sShadowNew'); if (sn) sn.onclick = () => redo(it, () => { r.shadowSource = 'ai'; if (r.shadowMode === 'none') r.shadowMode = 'floor'; return ensureAiShadow(it, { force: true, model: s.querySelector('input[name=sShModel]:checked')?.value }); });
   s.querySelectorAll('input[name=sLight]').forEach(x => x.onchange = () => { r.light = x.value; re(); });
   $('#sStrength').oninput = e => { r.strength = +e.target.value / 100; r.ownStrength = true; e.target.previousElementSibling.querySelector('output').textContent = e.target.value + ' %'; schedule(re); };
-  $('#sJpg').onclick = async () => download((await outBlobs(it)).jpg, it.base + '.jpg');
-  $('#sPng').onclick = async () => download((await outBlobs(it)).png, it.base + '.png');
+  $('#sJpg').onclick = async () => download((await outBlobs(it)).jpg, outNames(it).jpg);
+  $('#sPng').onclick = async () => download((await outBlobs(it)).png, outNames(it).png);
   const ur = $('#sUseRet'); if (ur) ur.onchange = () => redo(it, async () => { r.useRetouch = ur.checked; await ensureCutout(it); if (r.shadowSource === 'ai') await ensureAiShadow(it); });
   const rb = $('#sRetouch'); if (rb) rb.onclick = () => {
     const extra = $('#sExtra').value.trim();

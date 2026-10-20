@@ -109,15 +109,17 @@ export function applyTone(c, tone) {
 }
 
 /* Unscharf maskieren (nach dem Verkleinern) */
-export function sharpen(c, amount, radius = 0.9) {
-  if (!(amount > 0.02)) return c;
+export function sharpen(c, amount, radius = 0.9, edge = 0.7) {
+  // Farbe UND Kante schärfen: auch halbtransparente Kantenpixel (Sägekette, Gitter) werden mitgeschärft,
+  // die Alpha-Kante wird per Unscharfmaskierung gestrafft → im PNG kristallscharfe Konturen statt weicher Säume
   const bl = canvas(c.width, c.height), bx = bl.getContext('2d');
   bx.filter = `blur(${radius}px)`; bx.drawImage(c, 0, 0);
   const x = ctx2d(c), img = x.getImageData(0, 0, c.width, c.height), d = img.data, e = ctx2d(bl).getImageData(0, 0, c.width, c.height).data;
-  const k = amount * 1.3, thr = 2;
+  const k = Math.max(0, amount) * 1.3, thr = 2;
   for (let i = 0; i < d.length; i += 4) {
-    if (d[i + 3] < 250) continue;
-    for (let j = 0; j < 3; j++) { const diff = d[i + j] - e[i + j]; if (diff > thr || diff < -thr) d[i + j] = d[i + j] + diff * k; }
+    const a = d[i + 3]; if (a < 6) continue;
+    if (k > 0.02) for (let j = 0; j < 3; j++) { const diff = d[i + j] - e[i + j]; if (diff > thr || diff < -thr) d[i + j] = d[i + j] + diff * k * (a < 250 ? 0.7 : 1); }
+    if (edge > 0 && a < 250) d[i + 3] = a + (a - e[i + 3]) * edge;
   }
   x.putImageData(img, 0, 0); return c;
 }
@@ -196,6 +198,8 @@ export function refineAlpha(cut, src, { radius } = {}) {
         out[j * 4 + 3] = na; added++; nq.push(j);
       } }
     q = nq; }
+  // Matte leicht straffen: fast-transparenter Schleier weg, fast-deckende Pixel ganz deckend
+  for (let i = 3; i < out.length; i += 4) { const a = out[i]; if (a && a < 255) out[i] = Math.max(0, Math.min(255, (a - 14) * 255 / 226)); }
   // Halbtransparente Kantenpixel entfärben (sonst heller/grauer Saum vom Studiogrund im PNG)
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     const i = y * w + x, a = out[i * 4 + 3]; if (a < 12 || a > 243) continue;
@@ -470,7 +474,7 @@ export function prepareProduct(cut, s) {
   const src = canvas(cut.width, cut.height); src.getContext('2d').drawImage(cut, 0, 0);
   if (s.toneOn && s.tone) applyTone(src, s.tone);
   const placed = placeProduct(src, { offsetY: s.offsetY || 0 });
-  sharpen(placed.layer, s.toneOn && s.tone ? (s.tone.sharpen ?? 0.2) : 0.15);
+  sharpen(placed.layer, s.toneOn && s.tone ? (s.tone.sharpen ?? 0.2) : 0.15, 0.9, s.edgeSharpen ?? 0.7);
   return placed;
 }
 export const AI_SHADOW_GAIN = 1.3; // KI-Schatten sind eher zart – Grundverstärkung

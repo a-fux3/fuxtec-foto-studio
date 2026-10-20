@@ -45,6 +45,11 @@
         <button class="btn primary" id="zipBtn" disabled><svg class="i"><use href="#i-archive"/></svg>Alle als ZIP</button>
       </div>
     </div>
+    <div class="fname">
+      <label class="fname-in"><span class="flabel">Dateiname <small>Artikelnummer – leer lassen = Originalnamen</small></span>
+        <input id="namePrefix" type="text" placeholder="z. B. FX-RM4646" autocomplete="off" spellcheck="false" maxlength="80"></label>
+      <p class="fname-prev" id="namePrev"></p>
+    </div>
     <details class="fbar-adv">
     <summary><svg class="i chev"><use href="#i-chev"/></svg>Erweiterte Einstellungen <small>optional – der Standard passt für alle Bilder</small></summary>
     <div class="fbar-opts">
@@ -55,7 +60,8 @@
         </div></div>
       <div class="field"><span class="flabel">Bildmodell</span>
         <div class="seg" role="radiogroup" aria-label="Bildmodell">
-          <label><input type="radio" name="editModel" value="nano-banana-2" checked><span>Nano Banana 2</span></label>
+          <label><input type="radio" name="editModel" value="gpt-image-2-5-flare-image-to-image" checked><span>GPT 2.5</span></label>
+          <label><input type="radio" name="editModel" value="nano-banana-2"><span>Nano Banana 2</span></label>
           <label><input type="radio" name="editModel" value="nano-banana-pro"><span>NB Pro</span></label>
         </div></div>
       <div class="field"><span class="flabel">Parallel</span>

@@ -41,10 +41,13 @@ Das freigestellte Produkt geht auf Weiß an die Bild-KI (Standard GPT Image 2.5,
 Zeichnet die KI das Produkt zu stark neu oder färbt den Hintergrund, wird automatisch der berechnete Schatten genommen (Hinweis „Schatten berechnet“). In der Detailansicht: KI-Schatten/Berechnet umschalten, Modell wählen, „KI-Schatten neu erzeugen“, Stärke 0–200 %.
 
 ### Standard ohne Einstellen
-Bei jedem Öffnen gilt derselbe Standard: Retusche nach KI-Entscheidung, Qualitätskontrolle an, KI-Schatten mit GPT Image 2.5, 3 Bilder parallel. „Erweiterte Einstellungen“ sind eingeklappt und gelten nur bis zum Neuladen. Oben zeigt eine Leiste den Gesamtfortschritt aller hochgeladenen Bilder, am Ende mit „Alle als ZIP herunterladen“.
+Bei jedem Öffnen gilt derselbe Standard: Retusche nach KI-Entscheidung mit GPT Image 2.5, Qualitätskontrolle an, KI-Schatten mit GPT Image 2.5, 3 Bilder parallel. „Erweiterte Einstellungen“ sind eingeklappt und gelten nur bis zum Neuladen. Oben zeigt eine Leiste den Gesamtfortschritt aller hochgeladenen Bilder, am Ende mit „Alle als ZIP herunterladen“.
+
+### Dateinamen
+Feld „Dateiname“ oben: Artikelnummer eintragen (z. B. `FX-RM4646`) → `FX-RM4646_freigestellt_01.png` und `FX-RM4646_whitepack_01.jpg`, nummeriert in Upload-Reihenfolge. ZIP heißt dann `FX-RM4646_<Datum>.zip`. Leer = Originalnamen.
 
 ### Kanten-Rettung (PNG)
-Freisteller-KIs verschlucken gern feine Strukturen (Sägekette, Gitter, Speichen). Bei einfarbigem Studiogrund holt das Tool diese Details aus dem Originalfoto zurück und entfärbt halbtransparente Kanten, damit im PNG kein heller Saum bleibt. Die Freistellung läuft dafür mit bis zu 3200 px.
+Freisteller-KIs verschlucken gern feine Strukturen (Sägekette, Gitter, Speichen). Bei einfarbigem Studiogrund holt das Tool diese Details aus dem Originalfoto zurück und entfärbt halbtransparente Kanten, damit im PNG kein heller Saum bleibt. Danach wird die Kante selbst nachgeschärft (Alpha-Unscharfmaskierung), damit feine Konturen wie Kettenglieder knackig bleiben. Die Freistellung läuft dafür mit bis zu 3200 px.
 
 ## 3. Einstellungen (`wrangler.jsonc` → `vars`)
 
@@ -52,7 +55,7 @@ Freisteller-KIs verschlucken gern feine Strukturen (Sägekette, Gitter, Speichen
 |---|---|---|
 | `CLAUDE_PROVIDER` | `kie` | `kie` = Claude über den Kie-Key · `anthropic` = eigener Key (`ANTHROPIC_API_KEY` als Secret) |
 | `CLAUDE_MODEL` | `claude-opus-5-5` | Analyse + Qualitätskontrolle (fällt bei Fehler einmal auf Sonnet zurück) |
-| `KIE_EDIT_MODEL` | `nano-banana-2` | Standard-Retuschemodell |
+| `KIE_EDIT_MODEL` | `gpt-image-2-5-flare-image-to-image` | Standard-Retuschemodell (umschaltbar: Nano Banana 2, NB Pro) |
 | `KIE_REMOVE_BG_MODEL` | `recraft/remove-background` | Freistellen |
 | `KIE_SHADOW_MODEL` | `gpt-image-2-5-flare-image-to-image` | Standardmodell für den KI-Schatten (Fallback: nano-banana-2) |
 
