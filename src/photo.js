@@ -27,7 +27,7 @@ export async function handlePhoto(req, env, url, h) {
   if (p === '/config') return json({
     claude: claudeReady(env), kie: !!env.KIE_API_KEY, model, editModel: env.KIE_EDIT_MODEL || 'gpt-image-2-5-flare-image-to-image', editModels: EDIT_MODELS,
     shadowModel: env.KIE_SHADOW_MODEL || 'gpt-image-2-5-flare-image-to-image', shadowModels: SHADOW_MODELS,
-    costs: COSTS, creditEur: +(env.CREDIT_EUR || 0.005)
+    costs: COSTS, creditEur: +(env.CREDIT_EUR || 0.0045)
   });
 
   /* Kie-Guthaben (für Kostenanzeige vorher/nachher) */

@@ -14,8 +14,8 @@
     // KI-Schatten (in der App umschaltbar): nano-banana-2 | nano-banana-2-1 | nano-banana-pro | gpt-image-2-5-flare-image-to-image
     "KIE_SHADOW_MODEL": "gpt-image-2-5-flare-image-to-image",
     "KIE_REMOVE_BG_MODEL": "recraft/remove-background",
-    // Preis pro Kie-Credit in Euro (1.000 Credits = 5 €)
-    "CREDIT_EUR": "0.005"
+    // Preis pro Kie-Credit in Euro: 1.000 Credits = 5 $ ≈ 4,46 € (Kurs Okt. 2026: 1 $ ≈ 0,89 €)
+    "CREDIT_EUR": "0.0045"
   },
   "observability": { "enabled": true }
 }
