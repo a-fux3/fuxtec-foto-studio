@@ -27,7 +27,9 @@ Deine Aufgabe: Analysiere das Foto und entscheide, was korrigiert werden muss.
    - light: wo das Hauptlicht im Original herkommt (left / center / right).
    - contacts (nur bei floor): Punkte, an denen das Produkt den Boden berührt – Unterkante jedes sichtbaren Rades, Fußes, Standbügels, der Kufe oder der aufliegenden Bodenplatte (bei langen Auflagen 2–3 Punkte entlang der Kante). Auch hintere Räder, wenn sichtbar. Koordinaten normiert 0–1 relativ zum gezeigten Bild (x von links, y von oben). Max. 8. Teile, die in der Luft hängen (Deichsel, Griff), NICHT angeben.
 
-4) HINWEISE (warnings): z. B. Produkt am Bildrand angeschnitten, mehrere verschiedene Produkte im Bild, Wasserzeichen/Text im Bild, sehr niedrige Auflösung, starke Unschärfe, Hand/Person im Bild, kein Produktfoto. Deutsch, kurz.
+4) ANSCHNITT (cropped_sides): Seiten des FOTOS (left, right, top, bottom), an denen das Produkt vom Bildrand abgeschnitten wird, es also über den Rand hinausragt (Makro-/Detailaufnahme, Teil des Produkts fehlt). NICHT angeben, wenn das Produkt komplett im Bild ist, auch wenn es den Rand nur berührt oder knapp davor endet (z. B. Rad, das gerade den unteren Rand erreicht). Komplett sichtbares Produkt = leere Liste.
+
+5) HINWEISE (warnings): z. B. Produkt am Bildrand angeschnitten, mehrere verschiedene Produkte im Bild, Wasserzeichen/Text im Bild, sehr niedrige Auflösung, starke Unschärfe, Hand/Person im Bild, kein Produktfoto. Deutsch, kurz.
 
 Sprache für product und issues: Deutsch. fixes: Englisch.`;
 
@@ -59,9 +61,10 @@ export const ANALYZE_TOOL = {
         },
         required: ['mode', 'light']
       },
+      cropped_sides: { type: 'array', items: { type: 'string', enum: ['left', 'right', 'top', 'bottom'] }, description: 'Bildseiten, an denen das Produkt abgeschnitten ist (leer = komplett sichtbar)' },
       warnings: { type: 'array', items: { type: 'string' } }
     },
-    required: ['product', 'category', 'quality', 'issues', 'tone', 'retouch_needed', 'fixes', 'shadow', 'warnings']
+    required: ['product', 'category', 'quality', 'issues', 'tone', 'retouch_needed', 'fixes', 'shadow', 'cropped_sides', 'warnings']
   }
 };
 

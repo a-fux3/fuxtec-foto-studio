@@ -226,18 +226,44 @@ export function alphaBox(c, thr = 24) {
   return { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
 }
 
-/* Produkt (freigestellt) zentriert in 900×900 auf 1200×1200 setzen → { layer, box, map(nx,ny) } */
-export function placeProduct(cut, { frame = FRAME, size = OUT, offsetY = 0 } = {}) {
-  const b = alphaBox(cut);
-  const s = frame / Math.max(b.w, b.h);
+/* Längster zusammenhängender Produktanteil (0..1) entlang jedes Bildrands der Freistellung → wo ist das Produkt angeschnitten? */
+export function edgeTouch(cut) {
+  const { width: w, height: h } = cut, d = ctx2d(cut).getImageData(0, 0, w, h).data, band = Math.max(2, Math.round(Math.min(w, h) * 0.01));
+  const run = (len, hit) => { let best = 0, cur = 0; for (let i = 0; i < len; i++) { if (hit(i)) { cur++; if (cur > best) best = cur; } else cur = 0; } return best / len; };
+  const any = (xs, ys) => { for (const y of ys) for (const x of xs) if (d[(y * w + x) * 4 + 3] > 128) return true; return false; };
+  const rng = (a, b) => { const r = []; for (let i = a; i < b; i++) r.push(i); return r; };
+  const cx = rng(0, band), cx2 = rng(w - band, w), cy = rng(0, band), cy2 = rng(h - band, h);
+  return {
+    l: run(h, y => any(cx, [y])), r: run(h, y => any(cx2, [y])),
+    t: run(w, x => any([x], cy)), b: run(w, x => any([x], cy2))
+  };
+}
+/* Angeschnittene Seiten festlegen. hint = Liste aus der KI-Analyse (['left','bottom'] …); ohne hint nur bei sehr deutlichem Randkontakt */
+export function resolveBleed(cut, hint) {
+  const e = edgeTouch(cut), name = { l: 'left', r: 'right', t: 'top', b: 'bottom' }, out = { l: false, r: false, t: false, b: false };
+  for (const k of Object.keys(out)) out[k] = Array.isArray(hint) ? hint.includes(name[k]) && e[k] >= 0.03 : e[k] >= 0.3;
+  return out;
+}
+
+/* Produkt (freigestellt) in 900×900 auf 1200×1200 setzen → { layer, box, map(nx,ny), bleed }.
+ * Angeschnittene Seiten (bleed) laufen bis über den Canvas-Rand hinaus, die übrigen halten den Rahmen. */
+export function placeProduct(cut, { frame = FRAME, size = OUT, offsetY = 0, bleed } = {}) {
+  const b = alphaBox(cut), bl = bleed || {}, m = (size - frame) / 2, over = 2; // 2 px Überstand: kein heller Saum am Rand
+  const availW = (bl.l && bl.r) ? size + 2 * over : (bl.l || bl.r) ? frame + m + over : frame;
+  const availH = (bl.t && bl.b) ? size + 2 * over : (bl.t || bl.b) ? frame + m + over : frame;
+  const s = Math.min(availW / b.w, availH / b.h);
   const crop = canvas(b.w, b.h); crop.getContext('2d').drawImage(cut, b.x, b.y, b.w, b.h, 0, 0, b.w, b.h);
-  const sc = s < 1 ? resized(crop, b.w * s, b.h * s) : resized(crop, b.w * s, b.h * s);
-  const layer = canvas(size, size), dx = Math.round((size - sc.width) / 2), dy = Math.round((size - sc.height) / 2 + offsetY);
+  const sc = resized(crop, b.w * s, b.h * s);
+  const pos = (lo, hi, len, centered) => lo ? -over : hi ? size + over - len : centered;
+  const dx = Math.round(pos(bl.l, bl.r, sc.width, (size - sc.width) / 2));
+  const dy = Math.round(pos(bl.t, bl.b, sc.height, (size - sc.height) / 2 + offsetY));
+  const layer = canvas(size, size);
   layer.getContext('2d').drawImage(sc, dx, dy);
-  const box = { x: dx, y: dy, w: sc.width, h: sc.height };
+  const x0 = Math.max(0, dx), y0 = Math.max(0, dy);
+  const box = { x: x0, y: y0, w: Math.min(size, dx + sc.width) - x0, h: Math.min(size, dy + sc.height) - y0 };
   // normierte Koordinaten im Quellbild → Ausgabe-Pixel
   const map = (nx, ny) => ({ x: dx + (nx * cut.width - b.x) * s, y: dy + (ny * cut.height - b.y) * s });
-  return { layer, box, scale: s, map };
+  return { layer, box, scale: s, map, bleed: bl };
 }
 
 /* ---------------- Schatten ---------------- */
@@ -312,7 +338,7 @@ export function resolveContacts(placed, { manual, ai } = {}) {
 /* Schattenebene (schwarz mit Alpha) – opts: {mode: floor|flat|none, light: left|center|right, strength 0..1.5, contacts} */
 export function buildShadow(placed, opts) {
   const { layer, box } = placed, S = canvas(layer.width, layer.height), sx = S.getContext('2d');
-  const k = opts.strength ?? 1; if (opts.mode === 'none' || k <= 0) return { canvas: S, contacts: [] };
+  const k = opts.strength ?? 1; if (opts.mode === 'none' || k <= 0 || placed.bleed?.b) return { canvas: S, contacts: [] }; // unten angeschnitten = kein Boden sichtbar
   const W = box.w, H = box.h, dir = opts.light === 'left' ? 1 : opts.light === 'right' ? -1 : 0;
   const blurLayer = (draw, blur, alpha, dx = 0, dy = 0) => {
     const t = canvas(S.width, S.height), tx = t.getContext('2d'); tx.fillStyle = '#000'; tx.strokeStyle = '#000'; draw(tx);
@@ -556,7 +582,8 @@ export function scaleShadow(sh, k) {
 export function prepareProduct(cut, s) {
   const src = canvas(cut.width, cut.height); src.getContext('2d').drawImage(cut, 0, 0);
   if (s.toneOn && s.tone) applyTone(src, s.tone);
-  const placed = placeProduct(src, { offsetY: s.offsetY || 0 });
+  const bleed = resolveBleed(src, s.croppedSides);
+  const placed = placeProduct(src, { offsetY: s.offsetY || 0, bleed });
   sharpen(placed.layer, s.toneOn && s.tone ? (s.tone.sharpen ?? 0.2) : 0.15, 0.9, s.edgeSharpen ?? 0.7);
   return placed;
 }

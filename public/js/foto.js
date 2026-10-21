@@ -260,6 +260,7 @@ async function process(it) {
     if (a._fallback) it.log.push(`Analyse mit ${a._fallback.to} (Fallback)`);
     it.r.tone = { ...it.analysis.tone }; it.r.shadowMode = it.analysis.shadow.mode; it.r.light = it.analysis.shadow.light;
     it.r.aiContacts = it.analysis.shadow.contacts || [];
+    it.r.croppedSides = a.mock ? undefined : (it.analysis.cropped_sides || []);
   }
 
   // 3) Retusche (nur wenn die KI Makel findet)
@@ -358,6 +359,7 @@ const aiShadowFresh = it => it.aiShadow && it.aiShadow.key === cutId(it);
 async function ensureAiShadow(it, { force = false, model } = {}) {
   const r = it.r;
   if (!(CFG.kie && CFG.claude)) { r.shadowSource = 'calc'; return; }
+  if (fx.prepareProduct(await getCut(it), r).bleed.b) return; // unten angeschnitten: kein Bodenschatten nötig
   if (aiShadowFresh(it) && !force) return;
   if (r.shadowMode === 'none') r.shadowMode = 'floor'; // jedes Produkt bekommt einen Schatten
   const placed = fx.prepareProduct(await getCut(it), r);
@@ -629,6 +631,10 @@ function renderSide() {
       <label class="tgl small"><input type="checkbox" id="sLevels" ${r.tone?.levels ? 'checked' : ''}><span class="sw"></span><span><b>Tonwertkorrektur (Schwarz-/Weißpunkt)</b></span></label>
       <button class="btn ghost" id="sToneReset">KI-Werte wiederherstellen</button>
     </section>
+    <section><h3>Anschnitt</h3>
+      <div class="seg multi">${[['left', 'Links'], ['right', 'Rechts'], ['top', 'Oben'], ['bottom', 'Unten']].map(([k, l]) => `<label><input type="checkbox" name="sCrop" value="${k}" ${(r.croppedSides || []).includes(k) ? 'checked' : ''}><span>${l}</span></label>`).join('')}</div>
+      <p class="hint">Seiten, an denen das Produkt im Originalfoto abgeschnitten ist: Dort läuft es bis an den Rand, die anderen Seiten halten den 900er-Rahmen.</p>
+    </section>
     <section><h3>Schatten</h3>
       ${CFG.kie && CFG.claude ? `<div class="seg"><label><input type="radio" name="sSrc" value="ai" ${r.shadowSource === 'ai' ? 'checked' : ''}><span>KI-Schatten</span></label><label><input type="radio" name="sSrc" value="calc" ${r.shadowSource !== 'ai' ? 'checked' : ''}><span>Berechnet</span></label></div>` : ''}
       ${r.shadowSource === 'ai' ? `<p class="hint">${aiShadowFresh(it) ? `${esc(SHADOW_MODEL_LABEL[it.aiShadow.model] || it.aiShadow.model)} · nur der Schatten wird übernommen, das Produkt bleibt unverändert.` : 'Noch kein KI-Schatten für diese Version.'}</p>
@@ -651,6 +657,10 @@ function renderSide() {
   $('#sToneOn').onchange = e => { r.toneOn = e.target.checked; re(); };
   $('#sLevels').onchange = e => { r.tone = { ...r.tone, levels: e.target.checked }; re(); };
   $('#sToneReset').onclick = () => { r.tone = { ...it.analysis.tone }; r.toneOn = true; re(); renderSide(); };
+  s.querySelectorAll('input[name=sCrop]').forEach(x => x.onchange = () => redo(it, async () => {
+    r.croppedSides = [...s.querySelectorAll('input[name=sCrop]:checked')].map(i => i.value);
+    if (r.shadowSource === 'ai') await ensureAiShadow(it, { force: true });
+  }));
   s.querySelectorAll('input[name=sMode]').forEach(x => x.onchange = () => { r.shadowMode = x.value; re(); renderSide(); });
   s.querySelectorAll('input[name=sCut]').forEach(x => x.onchange = () => redo(it, async () => {
     const v = it.cutVariants[it.cutKey]; v.pick = x.value; it.cutBlobs[it.cutKey] = x.value === 'b' ? v.b : v.a;
