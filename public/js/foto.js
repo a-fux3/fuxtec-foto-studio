@@ -460,7 +460,7 @@ const tipTag = (label, title, lines, icon) => `<span class="tag warn has-tip" ta
 function card(it) {
   const el = document.createElement('article'); el.className = 'fcard'; el.id = 'c-' + it.id;
   el.innerHTML = `<div class="fc-img"></div><div class="fc-meta"><b class="fc-name"></b><span class="fc-out"></span><span class="fc-step"></span><div class="fc-tags"></div></div>
-    <div class="fc-act"><button class="btn ghost fc-regen" title="Dieses Bild komplett neu bearbeiten (kostet erneut Credits)"><svg class="i"><use href="#i-refresh"/></svg>Neu</button><button class="btn icon ghost fc-retry" title="Erneut versuchen"><svg class="i"><use href="#i-refresh"/></svg></button><button class="btn icon ghost fc-del" title="Entfernen"><svg class="i"><use href="#i-x"/></svg></button></div>`;
+    <div class="fc-act"><button class="btn icon ghost fc-regen" title="Neu generieren – dieses Bild komplett neu bearbeiten (kostet erneut Credits)" aria-label="Neu generieren"><svg class="i"><use href="#i-refresh"/></svg></button><button class="btn icon ghost fc-retry" title="Erneut versuchen"><svg class="i"><use href="#i-refresh"/></svg></button><button class="btn icon ghost fc-del" title="Entfernen"><svg class="i"><use href="#i-x"/></svg></button></div>`;
   el.querySelector('.fc-img').onclick = () => it.status === 'done' && openDetail(it);
   el.querySelector('.fc-retry').onclick = e => { e.stopPropagation(); it.status = 'queued'; it.error = ''; paint(it); if (!batch || batch.closed) batch = { startCredits: null, est: estimate().avg, spent: 0, items: [it], closed: false }; pump(); };
   el.querySelector('.fc-regen').onclick = e => { e.stopPropagation(); regenerate(it); };
