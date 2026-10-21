@@ -214,13 +214,27 @@ body.has-items .studio.over .drop-veil { display: grid; }
 .fcard[data-status=ready] .fc-step { color: var(--fux); }
 .fcard[data-status=error] .fc-step { color: var(--err); word-break: break-word; }
 .fc-tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.fcard[data-status=done] .fc-tags { padding-right: 84px; min-height: 28px; }
 .fc-tags:empty { display: none; }
 .tag { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 2px 7px; border-radius: 99px; background: var(--raised); color: var(--mute); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tag .i { width: 11px; height: 11px; }
 .tag.ok { color: var(--ok); background: rgba(133, 255, 133, .09); }
 .tag.warn { color: var(--warn); background: rgba(245, 185, 66, .1); }
+.tag.has-tip { cursor: help; outline: 0; box-shadow: inset 0 0 0 1px rgba(245, 185, 66, .22); transition: background .15s, box-shadow .15s, transform .15s var(--ease); }
+.tag.has-tip:hover, .tag.has-tip:focus-visible { background: rgba(245, 185, 66, .2); box-shadow: inset 0 0 0 1px rgba(245, 185, 66, .6), 0 4px 14px rgba(245, 185, 66, .15); transform: translateY(-1px); }
+.tip { position: fixed; z-index: 1000; padding: 12px 14px; border-radius: 12px; background: #1b1b1b; border: 1px solid rgba(245, 185, 66, .35); box-shadow: 0 14px 40px rgba(0, 0, 0, .55); color: var(--text); font-size: 12.5px; line-height: 1.45; pointer-events: none; opacity: 0; transform: translateY(4px) scale(.98); transition: opacity .15s, transform .15s var(--ease); }
+.tip.below { transform: translateY(-4px) scale(.98); }
+.tip.on { opacity: 1; transform: none; }
+.tip b { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; font-size: 12px; font-weight: 600; color: var(--warn); }
+.tip b .i { width: 14px; height: 14px; }
+.tip ul { margin: 0; padding: 0 0 0 16px; display: grid; gap: 4px; color: #d8d8d8; }
+.tip li::marker { color: var(--warn); }
 .fc-act { position: absolute; right: 6px; bottom: 8px; display: flex; gap: 2px; }
 .fc-act .btn { padding: 5px; }
+.fc-act .fc-regen { padding: 5px 9px 5px 7px; font-size: 12px; gap: 5px; color: var(--mute); }
+.fc-act .fc-regen:hover { color: var(--fux); }
+.fc-act .fc-regen .i { width: 14px; height: 14px; transition: transform .4s var(--ease); }
+.fc-act .fc-regen:hover .i { transform: rotate(180deg); }
 .fc-act .btn[hidden] { display: none; }
 .fc-note { font: 600 13px var(--mono); color: #8f8f8f; letter-spacing: .08em; }
 

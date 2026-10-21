@@ -437,14 +437,46 @@ function mockAnalysis() {
 }
 
 /* ---------------- Karten ---------------- */
+/* Hover-Hinweis als schwebende Karte (wird nicht von der Kachel abgeschnitten) */
+const tipTag = (label, title, lines, icon) => `<span class="tag warn has-tip" tabindex="0" data-tip="${esc(JSON.stringify({ title, lines }))}">${icon ? '<svg class="i"><use href="#i-alert"/></svg>' : ''}${esc(label)}</span>`;
+(() => {
+  let box = null;
+  const hide = () => { box?.classList.remove('on'); };
+  const show = el => {
+    let d; try { d = JSON.parse(el.dataset.tip); } catch { return; }
+    if (!box) { box = document.createElement('div'); box.className = 'tip'; box.setAttribute('role', 'tooltip'); document.body.append(box); }
+    box.innerHTML = `<b><svg class="i"><use href="#i-alert"/></svg>${esc(d.title)}</b><ul>${d.lines.map(l => `<li>${esc(l)}</li>`).join('')}</ul>`;
+    const r = el.getBoundingClientRect(), w = Math.min(300, innerWidth - 16);
+    box.style.width = w + 'px';
+    box.style.left = Math.max(8, Math.min(innerWidth - w - 8, r.left)) + 'px';
+    box.classList.add('on');
+    const h = box.offsetHeight, up = r.top > h + 14;
+    box.style.top = (up ? r.top - h - 8 : r.bottom + 8) + 'px'; box.classList.toggle('below', !up);
+  };
+  document.addEventListener('mouseover', e => { const t = e.target.closest?.('.has-tip'); t ? show(t) : hide(); });
+  document.addEventListener('focusin', e => { const t = e.target.closest?.('.has-tip'); t ? show(t) : hide(); });
+  document.addEventListener('focusout', hide); addEventListener('scroll', hide, true);
+})();
 function card(it) {
   const el = document.createElement('article'); el.className = 'fcard'; el.id = 'c-' + it.id;
   el.innerHTML = `<div class="fc-img"></div><div class="fc-meta"><b class="fc-name"></b><span class="fc-out"></span><span class="fc-step"></span><div class="fc-tags"></div></div>
-    <div class="fc-act"><button class="btn icon ghost fc-retry" title="Erneut versuchen"><svg class="i"><use href="#i-refresh"/></svg></button><button class="btn icon ghost fc-del" title="Entfernen"><svg class="i"><use href="#i-x"/></svg></button></div>`;
+    <div class="fc-act"><button class="btn ghost fc-regen" title="Dieses Bild komplett neu bearbeiten (kostet erneut Credits)"><svg class="i"><use href="#i-refresh"/></svg>Neu</button><button class="btn icon ghost fc-retry" title="Erneut versuchen"><svg class="i"><use href="#i-refresh"/></svg></button><button class="btn icon ghost fc-del" title="Entfernen"><svg class="i"><use href="#i-x"/></svg></button></div>`;
   el.querySelector('.fc-img').onclick = () => it.status === 'done' && openDetail(it);
   el.querySelector('.fc-retry').onclick = e => { e.stopPropagation(); it.status = 'queued'; it.error = ''; paint(it); if (!batch || batch.closed) batch = { startCredits: null, est: estimate().avg, spent: 0, items: [it], closed: false }; pump(); };
+  el.querySelector('.fc-regen').onclick = e => { e.stopPropagation(); regenerate(it); };
   el.querySelector('.fc-del').onclick = e => { e.stopPropagation(); it.cancelled = true; items.splice(items.indexOf(it), 1); el.remove(); updateProgress(); };
   paint(it, el); return el;
+}
+/* Bild komplett neu bearbeiten: Analyse, Retusche, Freisteller und Schatten werden verworfen und neu erzeugt */
+function regenerate(it) {
+  if (it.status !== 'done' || !confirm(`„${it.name}“ komplett neu bearbeiten?\nDas kostet erneut Credits (ca. ${eur(Math.max(it.credits, estimate().avg))}).`)) return;
+  dropCache(it);
+  for (const k of ['analysis', 'retouch', 'cutVariants', 'cutBlobs', 'cutKey', 'aiShadow', 'aiShadowFail', 'out']) delete it[k];
+  it.credits = 0; it.error = ''; it.log.push('Neu generiert');
+  it.r = { toneOn: true, shadowMode: 'floor', light: 'center', strength: opt().strength, useRetouch: true, shadowSource: opt().shadowSrc };
+  it.status = 'queued'; paint(it);
+  if (!batch || batch.closed) batch = { startCredits: null, est: 0, spent: 0, items: [], closed: false };
+  batch.est += estimate().avg; batch.items.push(it); pump();
 }
 function paint(it, el = document.getElementById('c-' + it.id)) {
   if (!el) return;
@@ -461,11 +493,12 @@ function paint(it, el = document.getElementById('c-' + it.id)) {
   // Karte bleibt ruhig: nur Abweichungen vom Normalfall als Tag, alles andere steht in der Detailansicht
   const a = it.analysis, tags = [];
   if (it.retouch) tags.push(it.retouch.accepted ? '<span class="tag ok">Retuschiert</span>' : '<span class="tag warn">Retusche verworfen</span>');
-  if (it.status === 'done' && it.aiShadowFail && it.r.shadowSource !== 'ai') tags.push(`<span class="tag warn" title="${esc(it.aiShadowFail)}">Schatten berechnet</span>`);
-  if (a?.warnings?.length) tags.push(`<span class="tag warn" title="${esc(a.warnings.join('\n'))}"><svg class="i"><use href="#i-alert"/></svg>${a.warnings.length} Hinweis${a.warnings.length > 1 ? 'e' : ''}</span>`);
+  if (it.status === 'done' && it.aiShadowFail && it.r.shadowSource !== 'ai') tags.push(tipTag('Schatten berechnet', 'Hinweis', [`KI-Schatten nicht übernommen: ${it.aiShadowFail}`, 'Stattdessen wurde ein berechneter Schatten verwendet.']));
+  if (a?.warnings?.length) tags.push(tipTag(`${a.warnings.length} Hinweis${a.warnings.length > 1 ? 'e' : ''}`, 'Hinweise der KI-Analyse', a.warnings, true));
   if (it.status === 'done' && it.credits > 0) tags.push(`<span class="tag" title="geschätzte Kosten für dieses Bild">ca. ${eur(it.credits)}</span>`);
   el.querySelector('.fc-tags').innerHTML = tags.join('');
   el.querySelector('.fc-retry').hidden = it.status !== 'error';
+  el.querySelector('.fc-regen').hidden = it.status !== 'done';
 }
 const STEP_PCT = { ready: 0, compare: 66, queued: 0, prep: 4, upload: 10, analyze: 18, retouch: 35, qa: 50, cutout: 58, shadow: 72, render: 95, done: 100, error: 100 };
 function updateProgress() {
